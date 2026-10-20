@@ -1,0 +1,56 @@
+name: Daily matchup plan
+
+on:
+  schedule:
+    - cron: "0 15 * * *"   # about 11 am ET (10 am in winter)
+    - cron: "0 22 * * *"   # about 6 pm ET (5 pm in winter), after the evening injury report
+  workflow_dispatch:        # lets you press "Run workflow" any time
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: matchup-plan
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Build the plan
+        run: python -m planner.main --out site
+        env:
+          LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          SWID: ${{ secrets.SWID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          YEAR: ${{ vars.YEAR }}
+          ACTIVE_SLOTS: ${{ vars.ACTIVE_SLOTS }}
+          ROSTER_SIZE: ${{ vars.ROSTER_SIZE }}
+          MAX_ADDS: ${{ vars.MAX_ADDS }}
+          ADD_DELAY_DAYS: ${{ vars.ADD_DELAY_DAYS }}
+          KEEP_PLAYERS: ${{ vars.KEEP_PLAYERS }}
+          MATCHUP_END: ${{ vars.MATCHUP_END }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
