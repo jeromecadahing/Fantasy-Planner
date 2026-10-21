@@ -2,8 +2,10 @@ name: Daily matchup plan
 
 on:
   schedule:
-    - cron: "0 15 * * *"   # about 11 am ET (10 am in winter)
-    - cron: "0 22 * * *"   # about 6 pm ET (5 pm in winter), after the evening injury report
+    # Times are UTC. Minute 17 avoids GitHub's busy top-of-the-hour queue.
+    - cron: "17 14-23 * * *"  # hourly, about 10 am to 7 pm ET (an hour earlier in winter)
+    - cron: "17 0-4 * * *"    # hourly, about 8 pm to midnight ET, through the late games
+    - cron: "47 21-23 * * *"  # extra runs around 5:45-7:45 pm ET, when pre-game injury news lands
   workflow_dispatch:        # lets you press "Run workflow" any time
 
 permissions:
@@ -41,6 +43,7 @@ jobs:
           ADD_DELAY_DAYS: ${{ vars.ADD_DELAY_DAYS }}
           KEEP_PLAYERS: ${{ vars.KEEP_PLAYERS }}
           MATCHUP_END: ${{ vars.MATCHUP_END }}
+          RESERVE_ADDS: ${{ vars.RESERVE_ADDS }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
