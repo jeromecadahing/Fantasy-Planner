@@ -53,6 +53,14 @@ h2{font:700 1.45rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:0 0 
 .chip small{color:var(--warn);font-weight:600;margin-left:3px}
 table{border-collapse:collapse;width:100%;font-size:.92rem}td{padding:6px 4px;border-top:1px solid var(--rule);vertical-align:top}
 td:first-child{color:var(--muted);white-space:nowrap}
+.lift{margin:0 0 12px;font-size:1rem}.lift .cd{font-size:1.5rem;font-weight:700;color:var(--muted)}
+.lift .strong{color:var(--good)}.arrow{color:var(--muted)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.step{border-left:3px solid var(--rule);padding:4px 0 12px 14px;position:relative}
+.step::before{content:"";position:absolute;left:-7px;top:8px;width:11px;height:11px;border-radius:50%;background:var(--surface);border:2px solid var(--you)}
+.sh{display:flex;align-items:center;gap:8px}.act{margin:2px 0 0}.step p{margin:2px 0 0;font-size:.93rem}.step p:not(.act){color:var(--muted)}
+.tag{font:600 .75rem/1 Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;padding:3px 6px;border-radius:4px;border:1px solid var(--rule);color:var(--muted)}
+.tag.now{background:var(--you);border-color:var(--you);color:var(--on-you)}
 .foot{color:var(--muted);font-size:.86rem;margin-top:18px;max-width:70ch}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
 @media (max-width:520px){.row{grid-template-columns:3.1rem 1fr 2.6rem 1fr 3.1rem;gap:5px}}
@@ -105,6 +113,37 @@ def _picks(plan):
             "The chips show how each category’s win chance moves.</p>")
 
 
+def _days_list(days):
+    return ", ".join(days) if days else "no games"
+
+
+def _stream(plan):
+    st = plan.get("stream") or {}
+    if not st.get("moves"):
+        return f'<p class="empty">{escape(st.get("note") or "No streaming moves this week.")}</p>'
+    b, a = round(st["before"] * 100), round(st["after"] * 100)
+    h = (f'<p class="lift"><span class="cd">{b}%</span> <span class="arrow">→</span> '
+         f'<span class="cd strong">{a}%</span> chance to win the week if you make these moves. '
+         f'Uses {st["adds_planned"]} add{"s" if st["adds_planned"] != 1 else ""}, leaving {st["adds_left_after"]}.</p><ol class="steps">')
+    for m in st["moves"]:
+        when = '<span class="tag now">Do today</span>' if m["today"] else '<span class="tag">Planned</span>'
+        status = f' ({escape(m["add_status"])})' if m["add_status"] != "Healthy" else ""
+        if m["drop"]:
+            why = (f' after his {", ".join(m["drop_days_used"])} game{"s" if len(m["drop_days_used"]) != 1 else ""}'
+                   if m["drop_days_used"] else "")
+            drop = f'Drop {escape(m["drop"])}{why}.' + ("" if m["drop_is_streamer"] else " This one is a permanent cut.")
+        else:
+            drop = "Use your open roster spot."
+        trend = f'<p>{escape(m["trend"])}</p>' if m.get("trend") else ""
+        h += (f'<li class="step"><div class="sh"><span class="dn">{escape(m["day"])}</span>{when}</div>'
+              f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
+              f'<p>{drop} He plays {_days_list(m["add_days"])} for you'
+              + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}</li>')
+    h += ('</ol><p class="hint" style="margin-top:10px">The plan is rebuilt on every run, so later steps can change '
+          "as injuries and box scores come in. Make today’s move; treat the rest as the current best path.</p>")
+    return h
+
+
 def _days(plan):
     if not plan["lineup"]:
         return '<p class="empty">No days left in this matchup.</p>'
@@ -146,10 +185,11 @@ def render(data, plan):
 <div class="side opp"><span class="team">{escape(opp)}</span><span class="big">{9 - res["cats"]:.1f}</span></div></div>
 <p class="verdict">{verdict}</p><div class="tug">{_tug(res)}</div></section>
 <div class="plan"><div class="stack">
-<section class="panel"><h2>Best pickups for this matchup</h2>{_picks(plan)}</section>
+<section class="panel"><h2>Streaming plan for the week</h2>{_stream(plan)}</section>
+<section class="panel"><h2>Other pickup options right now</h2>{_picks(plan)}</section>
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div>
-<section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day,
-ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
+<section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day with the
+streaming plan in place, ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
 {f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
 <p class="foot">Each remaining game is simulated thousands of times from recent per-game averages, with
 injury status setting each player’s chance to play. Positions are ignored, so any healthy player can fill an
@@ -164,6 +204,13 @@ def summary(data, plan):
     swing = [CATS[i][0] for i in range(9) if 0.2 <= res["catP"][i] < 0.8]
     if swing:
         lines.append("Swing: " + ", ".join(swing))
+    st = plan.get("stream") or {}
+    if st.get("moves"):
+        lines.append(f"Streaming plan: {round(st['before'] * 100)}% -> {round(st['after'] * 100)}% to win")
+        for m in st["moves"]:
+            drop = f", drop {m['drop']}" if m["drop"] else ""
+            lines.append(f"{'TODAY ' if m['today'] else ''}{m['day']}: add {m['add']}{drop}")
+        return "\n".join(lines)
     if plan["picks"] and plan["picks"][0]["win_delta"] > 0:
         x = plan["picks"][0]
         drop = f", drop {x['drop']}" if x["drop"] else ""

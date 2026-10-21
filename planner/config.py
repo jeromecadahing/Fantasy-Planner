@@ -37,6 +37,8 @@ class Config:
     matchup_end: str = ""
     fa_pool: int = 60
     discord_webhook: str = ""
+    reserve_adds: int = 1
+    plan_sims: int = 1200
     sims: int = 4000
     pickup_sims: int = 2500
 
@@ -57,6 +59,8 @@ class Config:
             matchup_end=_env("MATCHUP_END"),
             fa_pool=_int("FA_POOL", 60),
             discord_webhook=_env("DISCORD_WEBHOOK_URL"),
+            reserve_adds=_int("RESERVE_ADDS", 1),
+            plan_sims=_int("PLAN_SIMS", 1200),
             sims=_int("SIMS", 4000),
             pickup_sims=_int("PICKUP_SIMS", 2500),
         )

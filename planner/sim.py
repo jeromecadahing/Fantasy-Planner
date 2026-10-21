@@ -102,16 +102,18 @@ def build_plan(data, cfg):
     res = compare(sim_team(my_es, days_left, data["me"]["sofar"], cfg.sims, np.random.default_rng(777), slots), opp_tot)
     res["opp_mean"] = opp_tot.mean(0).tolist()
 
-    lineup = _lineups(data, my_es, entries(opp_players, EQUAL), days_left, slots)
     picks, pick_note = _pickups(data, cfg, me_players, w, days_left, opp_tot)
+    stream = _stream_plan(data, cfg, me_players, w, days_left, opp_tot)
+    plan_es = sorted(stream.pop("entries", None) or my_es, key=lambda e: -e.prio)
+    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots)
     return {"result": res, "weights": w, "lineup": lineup, "picks": picks, "pick_note": pick_note,
-            "notes": _notes(data, cfg, res, lineup), "trends": _trends(data)}
+            "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data)}
 
 
 def _lineups(data, my_es, opp_es, days_left, slots):
     out = []
     for d in days_left:
-        mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0]
+        mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
         theirs = [e for e in opp_es if e.p["games"][d] and e.p["prob"][d] > 0]
         out.append({"day": data["days"][d]["label"],
                     "start": [(e.p["name"], e.p["prob"][d], e.p["status"]) for e in mine[:slots]],
@@ -186,6 +188,117 @@ def _pickups(data, cfg, me_players, w, days_left, opp_tot):
     if used is None:
         note = ((note + " ") if note else "") + "Couldn't read your adds used from ESPN, so this assumes you have adds left."
     return picks, note
+
+
+def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
+    """Greedy week-long streaming schedule: each step adds the single add/drop (on any remaining day)
+    that raises the chance of winning the week the most, until adds run out or nothing helps."""
+    used = data.get("adds_used") or 0
+    budget = cfg.max_adds - used - cfg.reserve_adds
+    eff0 = data["today_index"] + cfg.add_delay_days
+    out = {"moves": [], "before": None, "after": None, "note": None}
+    if budget <= 0:
+        out["note"] = (f"No adds to plan with: {used} of {cfg.max_adds} used"
+                       + (f" and {cfg.reserve_adds} kept in reserve for injuries." if cfg.reserve_adds else "."))
+        return out
+    if eff0 >= len(data["days"]):
+        out["note"] = "No days left for a streamer to play in this matchup."
+        return out
+
+    n, BIG = cfg.plan_sims, 10 ** 6
+    opp = opp_tot[:n]
+    sofar = data["me"]["sofar"]
+
+    def evaluate(items, sims=n, opp_rows=opp):
+        es = sorted((Entry(i["p"], w, i["frm"], i["until"]) for i in items), key=lambda e: -e.prio)
+        return compare(sim_team(es, days_left, sofar, sims, np.random.default_rng(57), cfg.active_slots), opp_rows)
+
+    def score(r):
+        return r["win"] + 0.02 * r["cats"]
+
+    def games_from(p, t, until=BIG):
+        return sum(p["prob"][d] for d in days_left if t <= d < until and p["games"][d])
+
+    items = [{"p": p, "frm": 0, "until": BIG, "stream": False} for p in me_players]
+    core = {id(p) for p in sorted(me_players, key=lambda p: -value(p["s"], w))[:6]}
+    keep = set(cfg.keep_players)
+    regular_drops = sorted((i for i in items if id(i["p"]) not in core and i["p"]["name"].lower() not in keep),
+                           key=lambda i: value(i["p"]["s"], w) * games_from(i["p"], eff0))[:4]
+    fas = sorted((p for p in data["fa"] if games_from(p, eff0) > 0),
+                 key=lambda p: -value(p["s"], w) * games_from(p, eff0))[:12]
+    if not fas:
+        out["note"] = "No free agents with games left this week."
+        return out
+
+    def fits(cand):
+        for d in days_left:
+            if sum(1 for i in cand if i["frm"] <= d < i["until"]) > cfg.roster_size:
+                return False
+        return True
+
+    current = evaluate(items)
+    start = current
+    used_fa = set()
+    for _ in range(budget):
+        best = None
+        regular_ids = {id(i["p"]) for i in regular_drops}
+        drop_pool = [k for k, i in enumerate(items) if i["until"] == BIG and (i["stream"] or id(i["p"]) in regular_ids)]
+        for fa in fas:
+            if id(fa) in used_fa:
+                continue
+            for t in (d for d in days_left if d >= eff0 and fa["games"][d] and fa["prob"][d] > 0):
+                for k in drop_pool + [None]:
+                    drop = items[k] if k is not None else None
+                    if drop is not None and drop["stream"] and drop["frm"] >= t:
+                        continue
+                    cand = [dict(i) for i in items]
+                    if drop is not None:
+                        cand[k]["until"] = t
+                    cand.append({"p": fa, "frm": t, "until": BIG, "stream": True})
+                    if not fits(cand):
+                        continue
+                    r = evaluate(cand)
+                    # Cutting a regular is permanent, so it has to beat recycling a streamer spot clearly.
+                    gain = score(r) - score(current) - (0.025 if drop is not None and not drop["stream"] else 0)
+                    if best is None or gain > best[0]:
+                        best = (gain, cand, r, fa, t, drop)
+        if best is None or best[0] <= 0 or best[2]["win"] - current["win"] < 0.01:
+            break
+        gain, items, current, fa, t, drop = best
+        used_fa.add(id(fa))
+        out["moves"].append({"day": t, "add": fa, "drop": drop["p"] if drop else None})
+
+    if not out["moves"]:
+        out["note"] = "No streaming moves raise your chance of winning by at least 1 point. Hold your adds for injury news."
+        return out
+
+    # Re-check the finished plan with the full simulation count.
+    before = evaluate([{"p": p, "frm": 0, "until": BIG} for p in me_players], cfg.sims, opp_tot)
+    after = evaluate(items, cfg.sims, opp_tot)
+    out["before"], out["after"] = before["win"], after["win"]
+    out["cats_before"], out["cats_after"] = before["cats"], after["cats"]
+    final_until = {id(i["p"]): i["until"] for i in items}
+    moves = []
+    for m in sorted(out["moves"], key=lambda m: m["day"]):
+        fa, t = m["add"], m["day"]
+        until = final_until.get(id(fa), BIG)
+        add_days = [data["days"][d]["label"].split()[0] for d in days_left if t <= d < until and fa["games"][d]]
+        drop = m["drop"]
+        drop_days = []
+        if drop is not None:
+            frm = next((i["frm"] for i in items if i["p"] is drop), 0)
+            drop_days = [data["days"][d]["label"].split()[0] for d in days_left if max(frm, data["today_index"]) <= d < t and drop["games"][d]]
+        act = max(data["today_index"], t - cfg.add_delay_days)  # day you make the move in ESPN
+        moves.append({"day": data["days"][act]["label"], "today": act == data["today_index"],
+                      "plays_from": data["days"][t]["label"] if act != t else None,
+                      "add": fa["name"], "add_team": fa["team"], "add_status": fa["status"], "add_days": add_days,
+                      "trend": fa.get("trend"), "drop": drop["name"] if drop else None, "drop_days_used": drop_days,
+                      "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"]))})
+    out["moves"] = moves
+    out["adds_planned"] = len(moves)
+    out["adds_left_after"] = cfg.max_adds - used - len(moves)
+    out["entries"] = [Entry(i["p"], w, i["frm"], i["until"]) for i in items]
+    return out
 
 
 def _join(xs):
