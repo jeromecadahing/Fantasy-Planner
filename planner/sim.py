@@ -153,6 +153,8 @@ def _pickups(data, cfg, me_players, w, days_left, opp_tot):
     for fa in fas:
         best = None
         for drop in cands:
+            if drop is not None and not _cuttable(drop, fa):
+                continue
             es = []
             for p in me_players:
                 e = Entry(p, w)
@@ -165,7 +167,10 @@ def _pickups(data, cfg, me_players, w, days_left, opp_tot):
             score = (r["win"] - base["win"]) + 0.02 * (r["cats"] - base["cats"])
             if best is None or score > best["score"]:
                 best = {"score": score, "add": fa, "drop": drop, "r": r}
-        out.append(best)
+        if best is not None:
+            out.append(best)
+    if not out:
+        return [], "Every pickup would mean cutting a regular who's better than him over the season."
     out.sort(key=lambda x: -x["score"])
 
     picks = []
@@ -240,7 +245,7 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
     start = current
     used_fa = set()
     for _ in range(budget):
-        best = None
+        best, options = None, []
         regular_ids = {id(i["p"]) for i in regular_drops}
         drop_pool = [k for k, i in enumerate(items) if i["until"] == BIG and (i["stream"] or id(i["p"]) in regular_ids)]
         for fa in fas:
@@ -251,6 +256,8 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
                     drop = items[k] if k is not None else None
                     if drop is not None and drop["stream"] and drop["frm"] >= t:
                         continue
+                    if drop is not None and not drop["stream"] and not _cuttable(drop["p"], fa):
+                        continue
                     cand = [dict(i) for i in items]
                     if drop is not None:
                         cand[k]["until"] = t
@@ -260,13 +267,27 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
                     r = evaluate(cand)
                     # Cutting a regular is permanent, so it has to beat recycling a streamer spot clearly.
                     gain = score(r) - score(current) - (0.025 if drop is not None and not drop["stream"] else 0)
+                    options.append((gain, r["win"], fa, t, drop))
                     if best is None or gain > best[0]:
                         best = (gain, cand, r, fa, t, drop)
         if best is None or best[0] <= 0 or best[2]["win"] - current["win"] < 0.01:
             break
         gain, items, current, fa, t, drop = best
         used_fa.add(id(fa))
-        out["moves"].append({"day": t, "add": fa, "drop": drop["p"] if drop else None})
+        # Runner-up moves on the same day: a different add, or the same add with a different drop.
+        alts, seen = [], {(id(fa), id(drop["p"]) if drop else None)}
+        for g, win, afa, at, adrop in sorted(options, key=lambda o: -o[0]):
+            key = (id(afa), id(adrop["p"]) if adrop else None)
+            if at != t or key in seen or g <= 0:
+                continue
+            seen.add(key)
+            alts.append({"add": afa["name"], "add_team": afa["team"],
+                         "drop": adrop["p"]["name"] if adrop else None,
+                         "drop_is_streamer": bool(adrop and adrop["stream"]),
+                         "behind": round((current["win"] - win) * 100)})
+            if len(alts) == 3:
+                break
+        out["moves"].append({"day": t, "add": fa, "drop": drop["p"] if drop else None, "alts": alts})
 
     if not out["moves"]:
         out["note"] = "No streaming moves raise your chance of winning by at least 1 point. Hold your adds for injury news."
@@ -293,12 +314,18 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
                       "plays_from": data["days"][t]["label"] if act != t else None,
                       "add": fa["name"], "add_team": fa["team"], "add_status": fa["status"], "add_days": add_days,
                       "trend": fa.get("trend"), "drop": drop["name"] if drop else None, "drop_days_used": drop_days,
-                      "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"]))})
+                      "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"])),
+                      "alts": m["alts"]})
     out["moves"] = moves
     out["adds_planned"] = len(moves)
     out["adds_left_after"] = cfg.max_adds - used - len(moves)
     out["entries"] = [Entry(i["p"], w, i["frm"], i["until"]) for i in items]
     return out
+
+
+def _cuttable(drop, fa):
+    """A regular can be cut for good only if the incoming player is at least as good over a whole season."""
+    return value(drop["s"], EQUAL) <= value(fa["s"], EQUAL)
 
 
 def _join(xs):

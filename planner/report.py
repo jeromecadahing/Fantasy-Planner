@@ -60,6 +60,8 @@ td:first-child{color:var(--muted);white-space:nowrap}
 .step::before{content:"";position:absolute;left:-7px;top:8px;width:11px;height:11px;border-radius:50%;background:var(--surface);border:2px solid var(--you)}
 .sh{display:flex;align-items:center;gap:8px}.act{margin:2px 0 0}.step p{margin:2px 0 0;font-size:.93rem}.step p:not(.act){color:var(--muted)}
 .tag{font:600 .75rem/1 Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;padding:3px 6px;border-radius:4px;border:1px solid var(--rule);color:var(--muted)}
+.alts{margin:6px 0 0;font-size:.9rem}.alts summary{cursor:pointer;color:var(--muted)}
+.alts ul{margin:4px 0 0;padding-left:18px}.alts li{margin:2px 0}
 .tag.now{background:var(--you);border-color:var(--you);color:var(--on-you)}
 .foot{color:var(--muted);font-size:.86rem;margin-top:18px;max-width:70ch}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
@@ -117,6 +119,18 @@ def _days_list(days):
     return ", ".join(days) if days else "no games"
 
 
+def _alts(m):
+    if not m.get("alts"):
+        return ""
+    rows = ""
+    for a in m["alts"]:
+        drop = f', drop {escape(a["drop"])}' if a["drop"] else ", use your open spot"
+        perm = "" if not a["drop"] or a["drop_is_streamer"] else " (permanent cut)"
+        gap = "about the same chance" if a["behind"] <= 0 else f'{a["behind"]} point{"s" if a["behind"] != 1 else ""} lower'
+        rows += f'<li>Add {escape(a["add"])} <span class="dc">{escape(a["add_team"])}</span>{drop}{perm}: {gap}</li>'
+    return f'<details class="alts"><summary>Other options this day</summary><ul>{rows}</ul></details>'
+
+
 def _stream(plan):
     st = plan.get("stream") or {}
     if not st.get("moves"):
@@ -138,7 +152,7 @@ def _stream(plan):
         h += (f'<li class="step"><div class="sh"><span class="dn">{escape(m["day"])}</span>{when}</div>'
               f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {_days_list(m["add_days"])} for you'
-              + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}</li>')
+              + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}{_alts(m)}</li>')
     h += ('</ol><p class="hint" style="margin-top:10px">The plan is rebuilt on every run, so later steps can change '
           "as injuries and box scores come in. Make today’s move; treat the rest as the current best path.</p>")
     return h
@@ -167,7 +181,9 @@ def render(data, plan):
     me, opp = data["me"]["name"], data["opp"]["name"]
     win = round(res["win"] * 100)
     verdict = f"{win}% chance you win the week." + ("" if win >= 50 else f" {escape(opp)} is the favorite right now.")
-    now = datetime.now(ZoneInfo("America/New_York")).strftime("%a %b %-d, %-I:%M %p ET")
+    utc = datetime.now(ZoneInfo("UTC"))
+    et, uk = utc.astimezone(ZoneInfo("America/New_York")), utc.astimezone(ZoneInfo("Europe/London"))
+    now = f'{et.strftime("%a %b %-d, %-I:%M %p")} ET ({uk.strftime("%-I:%M %p")} UK)'
     trends = "".join(f"<tr><td>{escape(a)}</td><td>{escape(b)}</td><td>{escape(c)}</td></tr>" for a, b, c in plan["trends"])
     notes = "".join(f"<li>{escape(n)}</li>" for n in plan["notes"])
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
