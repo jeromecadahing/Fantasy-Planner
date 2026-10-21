@@ -325,7 +325,7 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
 
 def _cuttable(drop, fa):
     """A regular can be cut for good only if the incoming player is at least as good over a whole season."""
-    return value(drop["s"], EQUAL) <= value(fa["s"], EQUAL)
+    return value(drop.get("long") or drop["s"], EQUAL) <= value(fa.get("long") or fa["s"], EQUAL)
 
 
 def _join(xs):

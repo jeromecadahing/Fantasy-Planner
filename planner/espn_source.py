@@ -89,23 +89,42 @@ def _mpg(split):
     return avg.get("MIN") or avg.get("MPG") or 0
 
 
+def _avg(parts):
+    wsum = sum(w for _, w in parts)
+    return {k: round(sum((sp["avg"].get(v) or 0) * w for sp, w in parts) / wsum, 3) for k, v in STAT_KEYS.items()}
+
+
 def _blend(p, year):
-    """Per-game averages, leaning on recent form when there's enough of it."""
+    """Per-game averages for this week, and a steadier season-long version.
+
+    Early in the season a player's real numbers come from only a few games, so they're pulled
+    toward ESPN's preseason projection until the sample is big enough to trust.
+    The 7- and 15-day splits are only used once there's a real season behind them;
+    before that they're the same few games counted twice.
+    """
     season, l15, l7, proj = (_split(p, year, k) for k in ("total", "last_15", "last_7", "projected"))
     gps = _gp(season)
-    parts = []
+    real = []
     if gps >= 1 and season.get("avg"):
-        parts.append((season, 0.4 if gps >= 8 else 0.25))
-    if _gp(l15) >= 3 and l15.get("avg"):
-        parts.append((l15, 0.4))
-    if _gp(l7) >= 2 and l7.get("avg"):
-        parts.append((l7, 0.2))
-    if gps < 8 and proj.get("avg"):
-        parts.append((proj, 0.35 if parts else 1.0))
-    if not parts:
-        return None
-    wsum = sum(w for _, w in parts)
-    return {k: round(sum((s["avg"].get(v) or 0) * w for s, w in parts) / wsum, 3) for k, v in STAT_KEYS.items()}
+        real.append((season, 0.4 if gps >= 8 else 1.0))
+        if gps >= 8 and _gp(l15) >= 3 and l15.get("avg"):
+            real.append((l15, 0.4))
+        if gps >= 8 and _gp(l7) >= 2 and l7.get("avg"):
+            real.append((l7, 0.2))
+    has_proj = bool(proj.get("avg"))
+    if not real and not has_proj:
+        return None, None
+
+    def mix(k):  # projection weight shrinks as games are played: k games' worth of trust
+        if not real:
+            return _avg([(proj, 1.0)])
+        if not has_proj:
+            return _avg(real)
+        pw = k / (gps + k)
+        rsum = sum(w for _, w in real)
+        return _avg([(sp, w / rsum * (1 - pw)) for sp, w in real] + [(proj, pw)])
+
+    return mix(6), mix(15)
 
 
 def _trend(p, year):
@@ -120,7 +139,7 @@ def _trend(p, year):
 
 
 def _player(p, year, days, today_index, team_games, ir=False):
-    stats = _blend(p, year)
+    stats, season_long = _blend(p, year)
     if stats is None:
         return None
     label, p_today, p_later = STATUS.get(p.injuryStatus, ("Healthy", 1.0, 1.0))
@@ -134,7 +153,7 @@ def _player(p, year, days, today_index, team_games, ir=False):
             pr = 0.6
         prob.append(pr)
     return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position,
-            "status": label, "ir": ir, "games": games, "prob": prob, "s": stats,
+            "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
             "trend": _trend(p, year)}
 
 
