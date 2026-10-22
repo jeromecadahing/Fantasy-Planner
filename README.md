@@ -48,6 +48,18 @@ In the repo: **Settings → Secrets and variables → Actions → New repository
 
 After that it updates on its own around 11 am and 6 pm Eastern. You can also press **Run workflow** any time, for example right after big injury news (the GitHub mobile app works for this).
 
+## What-if scenarios
+The page has a **What if…** section. Pick a start day (today or any later day in the matchup), a free agent and who you'd drop, and it shows how your chance to win the week and each category would change. Every combination is simulated when the page is built, so it answers instantly. Early in the week this adds up to about a minute to each run.
+
+For players who aren't in that list, like a trade target or someone on your opponent's team, go to **Actions → Daily matchup plan → Run workflow** and type a scenario in the box:
+
+```
+add: Jalen Brunson; drop: Grant Sato
+add: Naz Reid, Josh Hart; drop: Grant Sato, Luca Varga; day: Thu
+```
+
+Names can be partial if they're unique ("brunson"). If you add a player from your opponent's roster, it's treated as a trade: they lose him and get the players you drop. The result appears at the top of the What if section and in the Discord message. The next scheduled run clears it; to keep a scenario on the page, set it as the `WHAT_IF` variable instead.
+
 ## Optional settings
 Add these under **Settings → Secrets and variables → Actions → Variables** only if the defaults don't fit.
 
@@ -60,6 +72,8 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 | `KEEP_PLAYERS` | none | Comma-separated names never suggested as drops |
 | `MATCHUP_END` | this Sunday | Last day of a longer matchup, like `2026-11-01` for an opening week or the All-Star break |
 | `YEAR` | automatic | ESPN season year (2026-27 is 2027) |
+| `WHAT_IF` | none | A scenario to show on every run, like `add: Jalen Brunson; drop: Grant Sato` |
+| `WHATIF_SIMS` | 600 | Simulations per add/drop pair in the What if picker. Lower it if runs get slow |
 
 ## Good to know
 - **The page is public.** Anyone with the address can see your rosters and plan. Your ESPN cookies stay private in GitHub secrets.
