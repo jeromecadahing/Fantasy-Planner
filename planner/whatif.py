@@ -12,7 +12,7 @@ import unicodedata
 
 import numpy as np
 
-from .sim import CATS, Entry, compare, entries, sim_team
+from .sim import CATS, EQUAL, Entry, compare, entries, fill_slots, sim_team, value
 
 
 # ---------- parsing and name matching ----------
@@ -52,6 +52,22 @@ def parse(text):
 
 # ---------- shared helpers ----------
 
+def season_value(p):
+    """Per-game value over the whole season (the steadier blend), all categories equal."""
+    return value(p.get("long") or p["s"], EQUAL)
+
+
+def _season_ranks(players):
+    """1-based rank of each player on the roster by season-long value, keyed by id()."""
+    ranked = sorted(players, key=season_value, reverse=True)
+    return {id(p): i + 1 for i, p in enumerate(ranked)}
+
+
+def _protected(p, ranks, cfg):
+    """Players the planner never suggests cutting: your top 6 over the season and KEEP_PLAYERS."""
+    return ranks.get(id(p), 99) <= 6 or p["name"].lower() in set(cfg.keep_players)
+
+
 def _games(p, days, frm, until=10 ** 6):
     return sum(1 for d in days if frm <= d < until and p["games"][d] and p["prob"][d] > 0)
 
@@ -62,7 +78,8 @@ def _starts(es, days, slots):
     for d in days:
         cand = sorted((e for e in es if e.p["games"][d] and e.frm <= d < e.until and e.p["prob"][d] > 0),
                       key=lambda e: -e.prio)
-        total += sum(e.p["prob"][d] for e in cand[:slots])
+        on, _ = fill_slots([e.elig for e in cand], slots)
+        total += sum(e.p["prob"][d] for e, x in zip(cand, on) if x)
     return total
 
 
@@ -98,6 +115,7 @@ def grid(data, cfg, w, opp_tot):
     base_starts = _starts(base_es, days_left, slots)
     room = len(me_players) < cfg.roster_size
     drops = ([None] if room else []) + sorted(me_players, key=lambda p: p["name"])
+    ranks = _season_ranks(me_players)
 
     starts = [t for t in days_left if t >= eff]
     by_day = []
@@ -134,9 +152,10 @@ def grid(data, cfg, w, opp_tot):
 
     return {
         "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "trend": p.get("trend"),
-                  "g": game_days(p)} for p in fas],
+                  "g": game_days(p), "sv": round(season_value(p), 3)} for p in fas],
         "drops": [{"name": "Nobody (open roster spot)", "open": True, "g": []} if d is None else
-                  {"name": d["name"], "g": game_days(d)} for d in drops],
+                  {"name": d["name"], "g": game_days(d), "sv": round(season_value(d), 3),
+                   "rank": ranks[id(d)], "keep": _protected(d, ranks, cfg)} for d in drops],
         "dl": [{"l": x["label"].split()[0], "dt": x["date"]} for x in data["days"]],
         "days": by_day, "cats": [c[0] for c in CATS],
     }
@@ -204,6 +223,17 @@ def scenario(data, cfg, w, opp_tot, res):
         return out
 
     me_players = [p for p in me_all if not p["ir"]]
+    ranks = _season_ranks(me_players)
+    best_add = max((season_value(a) for a in adds), default=None)
+    for p in drops:
+        if p["ir"]:
+            continue
+        worse = best_add is None or season_value(p) > best_add
+        if worse or _protected(p, ranks, cfg):
+            why = (f"he's your #{ranks[id(p)]} player over the season"
+                   + (" and better long-term than anyone you're adding" if worse and adds else ""))
+            out["notes"].append(f"Long-term check: {p['name']} is a keeper ({why}). The numbers below only cover "
+                                "this matchup, and dropping him is permanent.")
     size = len(me_players) - sum(1 for p in drops if not p["ir"]) + len(adds)
     if size > cfg.roster_size:
         out["notes"].append(f"This leaves you {size - cfg.roster_size} over your {cfg.roster_size}-man roster. "
