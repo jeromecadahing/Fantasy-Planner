@@ -52,6 +52,7 @@ h2{font:700 1.45rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:0 0 
 .chip{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--you-soft);margin:2px 3px 2px 0;font-size:.86rem}
 .chip.bench{background:transparent;border:1px dashed var(--rule);color:var(--muted);text-decoration:line-through}
 .chip small{color:var(--warn);font-weight:600;margin-left:3px}
+.chip i{font-style:normal;font-size:.72rem;color:var(--muted);margin-right:5px;letter-spacing:.03em}
 table{border-collapse:collapse;width:100%;font-size:.92rem}td{padding:6px 4px;border-top:1px solid var(--rule);vertical-align:top}
 td:first-child{color:var(--muted);white-space:nowrap}
 .lift{margin:0 0 12px;font-size:1rem}.lift .cd{font-size:1.5rem;font-weight:700;color:var(--muted)}
@@ -83,6 +84,7 @@ border:1px solid var(--rule);border-radius:8px;padding:9px 10px;width:100%;min-w
 .scn{border:1px solid var(--you);box-shadow:inset 3px 0 0 var(--you);border-radius:10px;padding:12px 14px;margin-bottom:16px}
 .scn h3{margin:0 0 4px;font:700 1.15rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}
 .scn p{margin:4px 0 0;font-size:.93rem}.scn .err{color:var(--bad)}
+.warn{margin:10px 0 0;padding:8px 10px;border-left:3px solid var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent);border-radius:4px;font-size:.93rem}
 code{font-size:.88em;background:var(--field);padding:1px 5px;border-radius:4px}
 @media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
@@ -189,9 +191,14 @@ def _days(plan):
             cnt += f', <span class="warnc">{len(d["bench"])} benched</span>'
         elif d["open"] and d["start"]:
             cnt += f', {d["open"]} open'
-        chips = "".join(f'<span class="chip">{escape(n)}{f"<small>{SHORT.get(s, s)}</small>" if pr < 1 else ""}</span>'
-                        for n, pr, s in d["start"])
+        slots = d.get("slot") or [None] * len(d["start"])
+        chips = "".join(f'<span class="chip">{f"<i>{escape(sl)}</i>" if sl else ""}{escape(n)}'
+                        f'{f"<small>{SHORT.get(s, s)}</small>" if pr < 1 else ""}</span>'
+                        for (n, pr, s), sl in zip(d["start"], slots))
         chips += "".join(f'<span class="chip bench">{escape(n)}</span>' for n in d["bench"])
+        if d.get("squeezed"):
+            chips += (f'<p class="dc" style="margin:4px 0 0">{escape(", ".join(d["squeezed"]))} can’t start: '
+                      f'the open spot{"s don’t" if d["open"] > 1 else " doesn’t"} fit his position.</p>')
         out.append(f'<div class="day"><div class="dh"><span class="dn">{escape(d["day"])}</span>'
                    f'<span class="dc">{cnt}</span></div><div>{chips or "<span class=empty>No games</span>"}</div></div>')
     return "".join(out)
@@ -258,19 +265,22 @@ function b2bPairs(g,from){
   for(var i=1;i<ds.length;i++){if(ms(D.dl[ds[i]].dt)-ms(D.dl[ds[i-1]].dt)===864e5)pairs.push(D.dl[ds[i-1]].l+'\u2013'+D.dl[ds[i]].l);}
   return pairs;
 }
-function bestDrop(row){var bi=0;row.forEach(function(x,i){if(x[0]>row[bi][0]||(x[0]===row[bi][0]&&x[1]>row[bi][1]))bi=i;});return bi;}
+// A drop is "safe" if it's an open spot, or a non-keeper who isn't better than the add over the season.
+function safe(a,r){var dp=D.drops[r];return dp.open||(!dp.keep&&dp.sv<=D.adds[a].sv);}
+function bestDrop(row,a){var bi=-1;row.forEach(function(x,i){if(!safe(a,i))return;if(bi<0||x[0]>row[bi][0]||(x[0]===row[bi][0]&&x[1]>row[bi][1]))bi=i;});return bi;}
+function addRank(a,r){var n=1;D.drops.forEach(function(dp,i){if(i!==r&&!dp.open&&dp.sv>D.adds[a].sv)n++;});return n;}
 function fill(){
  var d=D.days[+T.value],ka=A.value,kr=R.value;A.innerHTML='';R.innerHTML='';
- var order=D.adds.map(function(p,i){var row=d.rows[i];return {i:i,best:row?row[bestDrop(row)][0]:-1e9};});
+ var order=D.adds.map(function(p,i){var row=d.rows[i],bd=row?bestDrop(row,i):-1;return {i:i,bd:bd,best:bd>=0?row[bd][0]:-1e9};});
  order.sort(function(x,y){return y.best-x.best;});
  order.forEach(function(o){var p=D.adds[o.i],s=sched(p.g,d.t,1e9);
    var lab=p.name+' ('+p.team+(s.n?': '+s.txt+(s.b2b?', back-to-back':''):', no games left')+(p.status!=='Healthy'?', '+p.status:'')+')';
-   if(s.n)lab+='  best '+sg(Math.round(o.best/10),'%');
+   if(s.n)lab+=o.bd>=0?'  best '+sg(Math.round(o.best/10),'%'):'  (only by cutting a keeper)';
    opt(A,lab,o.i);});
- D.drops.forEach(function(p,i){var s=sched(p.g,d.t,1e9);opt(R,p.open?p.name:p.name+' (gives up '+(s.n?s.txt:'nothing')+')',i);});
+ D.drops.forEach(function(p,i){var s=sched(p.g,d.t,1e9);opt(R,p.open?p.name:p.name+' (#'+p.rank+' season'+(p.keep?', keeper':'')+'; gives up '+(s.n?s.txt:'nothing')+')',i);});
  if(ka!=='')A.value=ka; if(kr!=='')R.value=kr;
  var top=order[0];
- if(top&&top.best>=10){var row=d.rows[top.i],bd=bestDrop(row);
+ if(top&&top.bd>=0&&top.best>=10){var row=d.rows[top.i],bd=top.bd;
    B.innerHTML='<p>Best move starting '+d.label+': <strong>add '+D.adds[top.i].name+'</strong>, '+(D.drops[bd].open?'using your open spot':'drop '+D.drops[bd].name)+' <span class="delta pos">'+sg(Math.round(row[bd][0]/10),'%')+'</span> <button type="button" class="wib" id="wi-show">Show it</button></p>';
    document.getElementById('wi-show').onclick=function(){A.value=top.i;R.value=bd;show();};
  } else B.innerHTML='<p class="dc">No pickup starting '+d.label+' raises your chance to win by a point or more. Saving the add may be the better play.</p>';
@@ -284,18 +294,23 @@ function show(){
   cells+='<div class="cc'+(dd>=3?' pos':dd<=-3?' neg':'')+'"><b>'+c+'</b><span>'+aa+'%</span><small class="'+tone(dd)+'">'+sg(dd)+'</small></div>';});
  var sa=sched(p.g,d.t,1e9),sd=sched(dp.g,d.t,1e9),pairs=b2bPairs(p.g,d.t);
  var who=dp.open?'using your open roster spot':'dropping '+dp.name+(sd.n?' (he gives up '+sd.txt+')':' (no games left to give up)');
- var best=bestDrop(row),bnote=best!==r?' Best drop for him: '+(D.drops[best].open?'your open spot':D.drops[best].name)+' ('+sg(Math.round(row[best][0]/10),'%')+').':'';
+ var best=bestDrop(row,a),bnote=best>=0&&best!==r?' Best drop that doesn\u2019t cost you long-term: '+(D.drops[best].open?'your open spot':D.drops[best].name)+' ('+sg(Math.round(row[best][0]/10),'%')+').':'';
+ var warn='';
+ if(!safe(a,r)){var worse=dp.sv>p.sv;
+   warn='<p class="warn"><strong>Long-term check:</strong> this number only covers this matchup. '+dp.name+' is your #'+dp.rank+' player over the season'
+     +(worse?', and '+p.name+' would only be your #'+addRank(a,r)+'.':(dp.keep&&dp.rank>6?' and on your keep list.':'.'))
+     +' Dropping him is permanent, so a one-week gain probably isn\u2019t worth it'+(best<0?'. None of your other drops are safe for this add either.':'.')+'</p>';}
  O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(dw)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(dw)+'">'+sg(dw,'%')+'</span></p>'
   +'<p>Adding '+p.name+' ('+p.team+'), who plays '+sa.txt+' for you, and '+who+'. '
   +(d.act?'Make the move in ESPN on '+d.act+'. ':'')+'Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
-  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.'+bnote+'</p>'
+  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.'+bnote+'</p>'+warn
   +(pairs.length?'<p class="dc">Back-to-back: '+pairs.join(', ')+'. Teams sometimes rest players on the second night; the simulation doesn\u2019t assume that, so check the news before relying on both games.</p>':'')
   +(p.trend?'<p class="dc">'+p.trend+'</p>':'')+'<div class="cg">'+cells+'</div>';
 }
 T.addEventListener('change',function(){fill();show();});
-A.addEventListener('change',function(){var row=D.days[+T.value].rows[+A.value];if(row)R.value=bestDrop(row);show();});
+A.addEventListener('change',function(){var a=+A.value,row=D.days[+T.value].rows[a],bd=row?bestDrop(row,a):-1;if(bd>=0)R.value=bd;show();});
 R.addEventListener('change',show);
-fill();var d0=D.days[0],o0=+A.value;if(d0.rows[o0])R.value=bestDrop(d0.rows[o0]);show();
+fill();var d0=D.days[0],o0=+A.value,b0=d0.rows[o0]?bestDrop(d0.rows[o0],o0):-1;if(b0>=0)R.value=b0;show();
 })();"""
 
 
@@ -352,8 +367,8 @@ streaming plan in place, ordered by how much they help the categories still up f
 <section class="panel" style="margin-bottom:18px"><h2>What if…</h2>{_whatif(plan)}</section>
 {f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
 <p class="foot">Each remaining game is simulated thousands of times from recent per-game averages, with
-injury status setting each player’s chance to play. Positions are ignored, so any healthy player can fill an
-active spot. Always check ESPN for late scratches before games lock.</p>
+injury status setting each player’s chance to play. Lineups follow your league’s position slots, so a player
+only starts in a spot ESPN would let him fill. Always check ESPN for late scratches before games lock.</p>
 </div></body></html>"""
 
 
