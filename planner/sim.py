@@ -16,10 +16,51 @@ def value(s, w):
 
 
 class Entry:
-    __slots__ = ("p", "frm", "until", "prio")
+    __slots__ = ("p", "frm", "until", "prio", "elig")
 
     def __init__(self, p, w, frm=0, until=10 ** 6):
         self.p, self.frm, self.until, self.prio = p, frm, until, value(p["s"], w)
+        el = p.get("elig")
+        self.elig = frozenset(el) if el else None  # None: fits any slot (no position data)
+
+
+def n_slots(slots):
+    return slots if isinstance(slots, int) else len(slots)
+
+
+def fill_slots(elig, slots):
+    """Which players start, given players in priority order and their eligible slots.
+
+    slots is either a count (positions ignored) or a list of slot names like
+    ["PG", "SG", "SF", "PF", "C", "G", "F", "UT", "UT", "UT"]. Each player in priority order gets a
+    slot if one can be freed for him by moving players already placed (augmenting paths), so a
+    better player is never benched just because the greedy order filled his only slot first.
+    Returns (started flags, slot name for each starter or None).
+    """
+    k = len(elig)
+    if isinstance(slots, int):
+        return [i < slots for i in range(k)], [None] * k
+    owner = [-1] * len(slots)  # slot index -> player index
+
+    def fits(i, j):
+        return elig[i] is None or slots[j] in elig[i]
+
+    def place(i, seen):
+        for j in range(len(slots)):
+            if j in seen or not fits(i, j):
+                continue
+            seen.add(j)
+            if owner[j] < 0 or place(owner[j], seen):
+                owner[j] = i
+                return True
+        return False
+
+    for i in range(k):
+        if -1 not in owner:
+            break
+        place(i, set())
+    at = {i: slots[j] for j, i in enumerate(owner) if i >= 0}
+    return [i in at for i in range(k)], [at.get(i) for i in range(k)]
 
 
 def entries(players, w, frm=0):
@@ -52,7 +93,17 @@ def sim_team(es, days, sofar, n, rng, slots):
             continue
         probs = np.array([e.p["prob"][d] for e in cand])
         avail = rng.random((n, len(cand))) < probs
-        started = avail & (np.cumsum(avail, axis=1) <= slots)
+        if isinstance(slots, int) or len(cand) <= 0:
+            started = avail & (np.cumsum(avail, axis=1) <= n_slots(slots))
+        else:
+            # Lineups depend on who's available; solve each distinct availability pattern once.
+            pats, inv = np.unique(avail, axis=0, return_inverse=True)
+            table = np.zeros_like(pats)
+            for r, pat in enumerate(pats):
+                idx = np.flatnonzero(pat)
+                on, _ = fill_slots([cand[j].elig for j in idx], slots)
+                table[r, idx[np.array(on, bool)]] = True
+            started = table[inv.reshape(-1)]
         for j, e in enumerate(cand):
             mask = started[:, j]
             k = int(mask.sum())
@@ -88,7 +139,17 @@ def fmt_cat(c, mean):
     return f"{round(mean[idx])}"
 
 
+def lineup_slots(data, cfg):
+    """The league's active lineup slots by position, or a plain count if positions are unknown."""
+    sl = list(cfg.lineup_slots or data.get("lineup_slots") or [])
+    if not sl or not any(p.get("elig") for p in data["me"]["players"]):
+        return cfg.active_slots
+    return sl
+
+
 def build_plan(data, cfg):
+    from dataclasses import replace
+    cfg = replace(cfg, active_slots=lineup_slots(data, cfg))
     days_left = list(range(data["today_index"], len(data["days"])))
     slots = cfg.active_slots
     me_players = [p for p in data["me"]["players"] if not p["ir"]]
@@ -118,10 +179,17 @@ def _lineups(data, my_es, opp_es, days_left, slots):
     for d in days_left:
         mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
         theirs = [e for e in opp_es if e.p["games"][d] and e.p["prob"][d] > 0]
+        on, at = fill_slots([e.elig for e in mine], slots)
+        start = [e for e, x in zip(mine, on) if x]
+        bench = [e for e, x in zip(mine, on) if not x]
+        # Benched although a slot is empty: no open slot he's eligible for.
+        squeezed = [e.p["name"] for e in bench] if len(start) < n_slots(slots) else []
         out.append({"day": data["days"][d]["label"],
-                    "start": [(e.p["name"], e.p["prob"][d], e.p["status"]) for e in mine[:slots]],
-                    "bench": [e.p["name"] for e in mine[slots:]],
-                    "open": max(0, slots - len(mine)), "opp_games": min(slots, len(theirs))})
+                    "start": [(e.p["name"], e.p["prob"][d], e.p["status"]) for e in start],
+                    "slot": [a for a, x in zip(at, on) if x],
+                    "bench": [e.p["name"] for e in bench], "squeezed": squeezed,
+                    "open": max(0, n_slots(slots) - len(start)),
+                    "opp_games": sum(fill_slots([e.elig for e in theirs], slots)[0])})
     return out
 
 
