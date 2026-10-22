@@ -28,7 +28,8 @@ def main():
     with open(os.path.join(args.out, "index.html"), "w", encoding="utf-8") as f:
         f.write(report.render(data, plan))
     with open(os.path.join(args.out, "plan.json"), "w", encoding="utf-8") as f:
-        json.dump({"result": plan["result"], "picks": plan["picks"], "notes": plan["notes"]}, f, indent=1)
+        json.dump({"result": plan["result"], "picks": plan["picks"], "notes": plan["notes"],
+                   "scenario": plan.get("scenario")}, f, indent=1)
 
     text = report.summary(data, plan)
     print(text)

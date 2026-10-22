@@ -1,5 +1,6 @@
 """Render the plan as a static web page and a short text summary."""
 from datetime import datetime
+import json
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -64,6 +65,23 @@ td:first-child{color:var(--muted);white-space:nowrap}
 .alts ul{margin:4px 0 0;padding-left:18px}.alts li{margin:2px 0}
 .tag.now{background:var(--you);border-color:var(--you);color:var(--on-you)}
 .foot{color:var(--muted);font-size:.86rem;margin-top:18px;max-width:70ch}
+.wi{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.wi label{display:grid;gap:4px;font-size:.88rem;color:var(--muted)}
+.wi select{font:500 1rem/1.2 Barlow,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--field);
+border:1px solid var(--rule);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
+.wi select:focus-visible{outline:2px solid var(--you);outline-offset:1px}
+.wiout .lift{margin-bottom:6px}.wiout p{margin:0 0 8px;font-size:.93rem}
+.cg{display:grid;grid-template-columns:repeat(9,1fr);gap:5px;margin:10px 0 4px}
+.cc{border:1px solid var(--rule);border-radius:7px;padding:6px 2px;text-align:center;background:var(--field)}
+.cc b{display:block;font:700 .95rem/1 "Barlow Condensed","Arial Narrow",sans-serif}
+.cc span{display:block;font:600 1.05rem/1.2 "Barlow Condensed","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}
+.cc small{display:block;font-size:.78rem;font-variant-numeric:tabular-nums}
+.cc.pos{border-color:var(--good)}.cc.neg{border-color:var(--bad)}
+.scn{border:1px solid var(--you);box-shadow:inset 3px 0 0 var(--you);border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.scn h3{margin:0 0 4px;font:700 1.15rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}
+.scn p{margin:4px 0 0;font-size:.93rem}.scn .err{color:var(--bad)}
+code{font-size:.88em;background:var(--field);padding:1px 5px;border-radius:4px}
+@media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
 @media (max-width:520px){.row{grid-template-columns:3.1rem 1fr 2.6rem 1fr 3.1rem;gap:5px}}
 """
@@ -176,6 +194,89 @@ def _days(plan):
     return "".join(out)
 
 
+def _signed(v, suffix=""):
+    return (f"+{v}" if v > 0 else f"−{-v}" if v < 0 else "±0") + suffix
+
+
+def _cat_grid(before, after):
+    cells = ""
+    for c, (label, _, _) in enumerate(CATS):
+        b, a = round(before[c] * 100), round(after[c] * 100)
+        d = a - b
+        cls = " pos" if d >= 3 else " neg" if d <= -3 else ""
+        tone = "pos" if d > 0 else "neg" if d < 0 else "flat"
+        cells += f'<div class="cc{cls}"><b>{label}</b><span>{a}%</span><small class="{tone}">{_signed(d)}</small></div>'
+    return f'<div class="cg">{cells}</div>'
+
+
+def _scenario(sc):
+    if not sc:
+        return ""
+    h = f'<div class="scn"><h3>Your scenario</h3><p class="dc">You asked: <code>{escape(sc["text"])}</code></p>'
+    if not sc.get("ok"):
+        h += "".join(f'<p class="err">{escape(e)}</p>' for e in sc["errors"])
+        return h + "</div>"
+    b, a = round(sc["before"]["win"] * 100), round(sc["after"]["win"] * 100)
+    d = a - b
+    cls = "pos" if d > 0 else "neg" if d < 0 else "flat"
+    adds = ", ".join(f'{escape(x["name"])} ({escape(x["team"])}, {escape(x["owner"])}, {x["games"]} game{"s" if x["games"] != 1 else ""})'
+                     for x in sc["adds"]) or "nobody"
+    drops = ", ".join(f'{escape(x["name"])} ({x["games"]} game{"s" if x["games"] != 1 else ""} given up)' for x in sc["drops"])
+    sd = sc["starts_delta"]
+    h += (f'<p class="lift" style="margin-top:8px"><span class="cd">{b}%</span> <span class="arrow">→</span> '
+          f'<span class="cd {cls}">{a}%</span> chance to win the week <span class="delta {cls}">{_signed(d, "%")}</span></p>'
+          f'<p>Add {adds}{"; drop " + drops if drops else ""}, from {escape(sc["day"])}. '
+          f'Expected categories {sc["before"]["cats"]:.1f} → {sc["after"]["cats"]:.1f}; '
+          f'{"about the same number of" if abs(sd) < 0.5 else f"{sd:+.1f}"} starter games.</p>'
+          + "".join(f'<p class="dc">{escape(n)}</p>' for n in sc["notes"])
+          + _cat_grid(sc["before"]["catP"], sc["after"]["catP"]) + "</div>")
+    return h
+
+
+WI_JS = r"""(function(){
+var D=JSON.parse(document.getElementById('wi-data').textContent);
+var A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out');
+function opt(sel,t,v){var o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
+D.adds.forEach(function(p,i){opt(A,p.name+' ('+p.team+', '+p.games+' game'+(p.games==1?'':'s')+(p.status!=='Healthy'?', '+p.status:'')+')',i);});
+D.drops.forEach(function(p,i){opt(R,p.games||i>0||p.name.indexOf('Nobody')<0?p.name+' ('+p.games+' game'+(p.games==1?'':'s')+' left)':p.name,i);});
+function sg(v,s){return (v>0?'+':v<0?'\u2212':'\u00b1')+Math.abs(v)+(s||'');}
+function tone(v){return v>0?'pos':v<0?'neg':'flat';}
+function show(){
+ var a=+A.value,r=+R.value,x=D.rows[a][r],p=D.adds[a],dp=D.drops[r];
+ var b=Math.round(D.base.win*100),aw=Math.max(0,Math.min(100,Math.round(D.base.win*100+x[0]/10))),d=aw-b;
+ var cats=(D.base.cats+x[1]/100).toFixed(1),st=x[3]/10,cells='';
+ D.cats.forEach(function(c,i){var bb=Math.round(D.base.catP[i]*100),aa=Math.max(0,Math.min(100,bb+x[2][i])),dd=aa-bb;
+  cells+='<div class="cc'+(dd>=3?' pos':dd<=-3?' neg':'')+'"><b>'+c+'</b><span>'+aa+'%</span><small class="'+tone(dd)+'">'+sg(dd)+'</small></div>';});
+ var who=dp.name.indexOf('Nobody')===0?'using your open roster spot':'dropping '+dp.name+(dp.games?' (he has '+dp.games+' game'+(dp.games==1?'':'s')+' left)':'');
+ O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(d)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(d)+'">'+sg(d,'%')+'</span></p>'
+  +'<p>Adding '+p.name+' from '+D.from+' and '+who+'. Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
+  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.</p>'
+  +(p.trend?'<p class="dc">'+p.trend+'</p>':'')+'<div class="cg">'+cells+'</div>';
+}
+A.addEventListener('change',show);R.addEventListener('change',show);show();
+})();"""
+
+
+def _whatif(plan):
+    g = plan.get("whatif") or {}
+    sc = _scenario(plan.get("scenario"))
+    help_ = ('<p class="hint" style="margin-top:12px">Want someone who isn’t listed, like a trade target or a player on '
+             'your opponent’s team? In GitHub go to <strong>Actions → Daily matchup plan → Run workflow</strong> and '
+             'type a scenario such as <code>add: Jalen Brunson; drop: Grant Sato</code>. Add <code>day: Thu</code> to '
+             'start it later in the week. Separate several names with commas.</p>')
+    if not g.get("adds"):
+        return sc + f'<p class="empty">{escape(g.get("note") or "No free agents to test.")}</p>' + help_
+    data = dict(g)
+    res = plan["result"]
+    data["base"] = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
+    blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
+    return (sc + '<p class="hint">Pick any free agent and who you’d drop to see how the rest of this matchup changes. '
+            'Every combination was simulated when the page was built, and compares against making no moves.</p>'
+            '<div class="wi"><label>Add<select id="wi-add"></select></label>'
+            '<label>Drop<select id="wi-drop"></select></label></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
+            f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
+
+
 def render(data, plan):
     res = plan["result"]
     me, opp = data["me"]["name"], data["opp"]["name"]
@@ -206,6 +307,7 @@ def render(data, plan):
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div>
 <section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day with the
 streaming plan in place, ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
+<section class="panel" style="margin-bottom:18px"><h2>What if…</h2>{_whatif(plan)}</section>
 {f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
 <p class="foot">Each remaining game is simulated thousands of times from recent per-game averages, with
 injury status setting each player’s chance to play. Positions are ignored, so any healthy player can fill an
@@ -220,6 +322,11 @@ def summary(data, plan):
     swing = [CATS[i][0] for i in range(9) if 0.2 <= res["catP"][i] < 0.8]
     if swing:
         lines.append("Swing: " + ", ".join(swing))
+    sc = plan.get("scenario")
+    if sc and sc.get("ok"):
+        lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")
+    elif sc:
+        lines.append("What-if couldn't run: " + " ".join(sc["errors"]))
     st = plan.get("stream") or {}
     if st.get("moves"):
         lines.append(f"Streaming plan: {round(st['before'] * 100)}% -> {round(st['after'] * 100)}% to win")

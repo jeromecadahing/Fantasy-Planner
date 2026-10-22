@@ -41,6 +41,8 @@ class Config:
     plan_sims: int = 1200
     sims: int = 4000
     pickup_sims: int = 2500
+    what_if: str = ""
+    whatif_sims: int = 600
 
     @classmethod
     def from_env(cls):
@@ -63,4 +65,6 @@ class Config:
             plan_sims=_int("PLAN_SIMS", 1200),
             sims=_int("SIMS", 4000),
             pickup_sims=_int("PICKUP_SIMS", 2500),
+            what_if=_env("WHAT_IF"),
+            whatif_sims=_int("WHATIF_SIMS", 600),
         )

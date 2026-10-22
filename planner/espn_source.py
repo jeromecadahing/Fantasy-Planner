@@ -209,6 +209,43 @@ def _adds_used(lg, cfg):
     return None
 
 
+def _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa):
+    """Look up players named in WHAT_IF who aren't on either roster or in the free-agent pool:
+    players on other teams in the league (trade targets) and deeper free agents."""
+    if not cfg.what_if:
+        return []
+    from .whatif import match, parse
+    adds, _, _ = parse(cfg.what_if)
+    known = [p["name"] for p in me["players"] + opp["players"] + fa]
+    wanted = [q for q in adds if not match(q, known)]
+    if not wanted:
+        return []
+    owned = [(p, t.team_name) for t in lg.teams for p in t.roster
+             if t.team_name not in (me["name"], opp["name"])]
+    everyone = [k for k in (getattr(lg, "player_map", {}) or {}) if isinstance(k, str)]
+    found = []
+    for q in wanted:
+        hits = match(q, [p.name for p, _ in owned])
+        if hits:
+            found += [owned[i] for i in hits[:4]]
+            continue
+        for i in match(q, everyone)[:4]:
+            try:
+                got = lg.player_info(playerId=lg.player_map[everyone[i]])
+            except Exception:
+                got = None
+            for p in (got if isinstance(got, list) else [got] if got else []):
+                found.append((p, "Free agent"))
+    out = []
+    players = _with_stats(lg, [p for p, _ in found])
+    for p, (_, owner) in zip(players, found):
+        x = _player(p, lg.year, days, today_index, team_games)
+        if x:
+            x["owner"] = owner
+            out.append(x)
+    return out
+
+
 def load(cfg):
     lg = _connect(cfg)
     sp_date, team_games = _game_dates(lg)
@@ -237,9 +274,11 @@ def load(cfg):
     fa_raw = _with_stats(lg, lg.free_agents(size=cfg.fa_pool))
     fa = [x for x in (_player(p, lg.year, days, today_index, team_games) for p in fa_raw) if x]
 
+    extra = _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa)
+
     return {
         "league": {"name": lg.settings.name, "week": lg.currentMatchupPeriod},
         "days": days, "today_index": today_index,
         "adds_used": _adds_used(lg, cfg), "sofar_note": note,
-        "me": me, "opp": opp, "fa": fa,
+        "me": me, "opp": opp, "fa": fa, "extra": extra,
     }
