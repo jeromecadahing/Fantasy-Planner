@@ -65,7 +65,7 @@ td:first-child{color:var(--muted);white-space:nowrap}
 .alts ul{margin:4px 0 0;padding-left:18px}.alts li{margin:2px 0}
 .tag.now{background:var(--you);border-color:var(--you);color:var(--on-you)}
 .foot{color:var(--muted);font-size:.86rem;margin-top:18px;max-width:70ch}
-.wi{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.wi{display:grid;grid-template-columns:minmax(9rem,.7fr) 1.3fr 1fr;gap:10px;margin-bottom:14px}
 .wi label{display:grid;gap:4px;font-size:.88rem;color:var(--muted)}
 .wi select{font:500 1rem/1.2 Barlow,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--field);
 border:1px solid var(--rule);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
@@ -235,25 +235,33 @@ def _scenario(sc):
 
 WI_JS = r"""(function(){
 var D=JSON.parse(document.getElementById('wi-data').textContent);
-var A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out');
+var T=document.getElementById('wi-day'),A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out');
 function opt(sel,t,v){var o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
-D.adds.forEach(function(p,i){opt(A,p.name+' ('+p.team+', '+p.games+' game'+(p.games==1?'':'s')+(p.status!=='Healthy'?', '+p.status:'')+')',i);});
-D.drops.forEach(function(p,i){opt(R,p.games||i>0||p.name.indexOf('Nobody')<0?p.name+' ('+p.games+' game'+(p.games==1?'':'s')+' left)':p.name,i);});
+function gm(k){return k+' game'+(k==1?'':'s');}
+D.days.forEach(function(d,i){opt(T,(d.today?'Today, ':'')+d.label,i);});
+function fill(){
+ var d=D.days[+T.value],ka=A.value,kr=R.value;A.innerHTML='';R.innerHTML='';
+ D.adds.forEach(function(p,i){opt(A,p.name+' ('+p.team+', '+(d.add_games[i]?gm(d.add_games[i]):'no games left')+(p.status!=='Healthy'?', '+p.status:'')+')',i);});
+ D.drops.forEach(function(p,i){opt(R,p.open?p.name:p.name+' ('+gm(d.drop_games[i])+' left)',i);});
+ if(ka!=='')A.value=ka; if(kr!=='')R.value=kr;
+}
 function sg(v,s){return (v>0?'+':v<0?'\u2212':'\u00b1')+Math.abs(v)+(s||'');}
 function tone(v){return v>0?'pos':v<0?'neg':'flat';}
 function show(){
- var a=+A.value,r=+R.value,x=D.rows[a][r],p=D.adds[a],dp=D.drops[r];
- var b=Math.round(D.base.win*100),aw=Math.max(0,Math.min(100,Math.round(D.base.win*100+x[0]/10))),d=aw-b;
+ var d=D.days[+T.value],a=+A.value,r=+R.value,p=D.adds[a],dp=D.drops[r],row=d.rows[a];
+ if(!row){O.innerHTML='<p class="empty">'+p.name+' has no games left from '+d.label+', so adding him then wouldn\u2019t change anything. Pick an earlier day.</p>';return;}
+ var x=row[r],b=Math.round(D.base.win*100),aw=Math.max(0,Math.min(100,b+Math.round(x[0]/10))),dw=aw-b;
  var cats=(D.base.cats+x[1]/100).toFixed(1),st=x[3]/10,cells='';
  D.cats.forEach(function(c,i){var bb=Math.round(D.base.catP[i]*100),aa=Math.max(0,Math.min(100,bb+x[2][i])),dd=aa-bb;
   cells+='<div class="cc'+(dd>=3?' pos':dd<=-3?' neg':'')+'"><b>'+c+'</b><span>'+aa+'%</span><small class="'+tone(dd)+'">'+sg(dd)+'</small></div>';});
- var who=dp.name.indexOf('Nobody')===0?'using your open roster spot':'dropping '+dp.name+(dp.games?' (he has '+dp.games+' game'+(dp.games==1?'':'s')+' left)':'');
- O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(d)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(d)+'">'+sg(d,'%')+'</span></p>'
-  +'<p>Adding '+p.name+' from '+D.from+' and '+who+'. Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
+ var g=d.drop_games[r],who=dp.open?'using your open roster spot':'dropping '+dp.name+(g?' (he gives up '+gm(g)+')':' (no games left to give up)');
+ O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(dw)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(dw)+'">'+sg(dw,'%')+'</span></p>'
+  +'<p>Adding '+p.name+' to play from '+d.label+' ('+gm(d.add_games[a])+') and '+who+'. '
+  +(d.act?'Make the move in ESPN on '+d.act+'. ':'')+'Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
   +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.</p>'
   +(p.trend?'<p class="dc">'+p.trend+'</p>':'')+'<div class="cg">'+cells+'</div>';
 }
-A.addEventListener('change',show);R.addEventListener('change',show);show();
+T.addEventListener('change',function(){fill();show();});A.addEventListener('change',show);R.addEventListener('change',show);fill();show();
 })();"""
 
 
@@ -270,9 +278,9 @@ def _whatif(plan):
     res = plan["result"]
     data["base"] = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-    return (sc + '<p class="hint">Pick any free agent and who you’d drop to see how the rest of this matchup changes. '
+    return (sc + '<p class="hint">Pick a day, a free agent and who you’d drop to see how the rest of this matchup changes. '
             'Every combination was simulated when the page was built, and compares against making no moves.</p>'
-            '<div class="wi"><label>Add<select id="wi-add"></select></label>'
+            '<div class="wi"><label>Starting<select id="wi-day"></select></label><label>Add<select id="wi-add"></select></label>'
             '<label>Drop<select id="wi-drop"></select></label></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
 

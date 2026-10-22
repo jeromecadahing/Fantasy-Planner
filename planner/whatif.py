@@ -80,6 +80,8 @@ def _my_entries(me_players, w, drops, adds, t):
 # ---------- the precomputed picker ----------
 
 def grid(data, cfg, w, opp_tot):
+    """Every free agent x every drop x every start day left. The days before a move are the same as
+    standing pat, so they're simulated once per start day and only the days after are re-run per move."""
     days_left = list(range(data["today_index"], len(data["days"])))
     eff = data["today_index"] + cfg.add_delay_days
     me_players = [p for p in data["me"]["players"] if not p["ir"]]
@@ -91,33 +93,46 @@ def grid(data, cfg, w, opp_tot):
 
     n, slots, sofar = cfg.whatif_sims, cfg.active_slots, data["me"]["sofar"]
     opp = opp_tot[:n]
-
-    def run(es):
-        return compare(sim_team(es, days_left, sofar, n, np.random.default_rng(91), slots), opp)
-
-    base = run(entries(me_players, w))
-    base_starts = _starts(entries(me_players, w), days_left, slots)
+    base_es = entries(me_players, w)
+    base = compare(sim_team(base_es, days_left, sofar, n, np.random.default_rng(91), slots), opp)
+    base_starts = _starts(base_es, days_left, slots)
     room = len(me_players) < cfg.roster_size
     drops = ([None] if room else []) + sorted(me_players, key=lambda p: p["name"])
 
-    rows = []
-    for fa in fas:
-        row = []
-        for drop in drops:
-            es = _my_entries(me_players, w, [drop] if drop else [], [fa], eff)
-            r = run(es)
-            row.append([round((r["win"] - base["win"]) * 1000), round((r["cats"] - base["cats"]) * 100),
-                        [round((r["catP"][c] - base["catP"][c]) * 100) for c in range(9)],
-                        round((_starts(es, days_left, slots) - base_starts) * 10)])
-        rows.append(row)
+    starts = [t for t in days_left if t >= eff]
+    by_day = []
+    for t in starts:
+        before = [d for d in days_left if d < t]
+        after = [d for d in days_left if d >= t]
+        pre = sim_team(base_es, before, sofar, n, np.random.default_rng(91), slots)
+
+        def run(es):  # same luck for every move starting this day
+            return sim_team(es, after, pre, n, np.random.default_rng(500 + t), slots)
+
+        ref = compare(run(base_es), opp)  # standing pat, with this day's luck
+        rows = []
+        for fa in fas:
+            if _games(fa, days_left, t) == 0:
+                rows.append(None)
+                continue
+            row = []
+            for drop in drops:
+                es = _my_entries(me_players, w, [drop] if drop else [], [fa], t)
+                r = compare(run(es), opp)
+                row.append([round((r["win"] - ref["win"]) * 1000), round((r["cats"] - ref["cats"]) * 100),
+                            [round((r["catP"][c] - ref["catP"][c]) * 100) for c in range(9)],
+                            round((_starts(es, days_left, slots) - base_starts) * 10)])
+            rows.append(row)
+        act = max(data["today_index"], t - cfg.add_delay_days)
+        by_day.append({"label": data["days"][t]["label"], "today": t == data["today_index"], "act": data["days"][act]["label"] if act != t else None,
+                       "add_games": [_games(p, days_left, t) for p in fas],
+                       "drop_games": [0 if d is None else _games(d, days_left, t) for d in drops],
+                       "rows": rows})
 
     return {
-        "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "games": _games(p, days_left, eff),
-                  "trend": p.get("trend")} for p in fas],
-        "drops": [{"name": "Nobody (open roster spot)", "games": 0} if d is None else
-                  {"name": d["name"], "games": _games(d, days_left, eff)} for d in drops],
-        "rows": rows, "cats": [c[0] for c in CATS],
-        "from": data["days"][eff]["label"],
+        "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "trend": p.get("trend")} for p in fas],
+        "drops": [{"name": "Nobody (open roster spot)", "open": True} if d is None else {"name": d["name"]} for d in drops],
+        "days": by_day, "cats": [c[0] for c in CATS],
     }
 
 

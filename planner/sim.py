@@ -44,7 +44,8 @@ def _game_stats(s, k, rng):
 
 def sim_team(es, days, sofar, n, rng, slots):
     """n simulated final stat totals. Each day the best available players fill the active slots."""
-    tot = np.tile(np.asarray(sofar, float), (n, 1))
+    sofar = np.asarray(sofar, float)
+    tot = sofar.copy() if sofar.ndim == 2 else np.tile(sofar, (n, 1))  # 2-D: per-simulation starting totals
     for d in days:
         cand = [e for e in es if e.p["games"][d] and e.frm <= d < e.until and e.p["prob"][d] > 0]
         if not cand:
