@@ -124,14 +124,20 @@ def grid(data, cfg, w, opp_tot):
                             round((_starts(es, days_left, slots) - base_starts) * 10)])
             rows.append(row)
         act = max(data["today_index"], t - cfg.add_delay_days)
-        by_day.append({"label": data["days"][t]["label"], "today": t == data["today_index"], "act": data["days"][act]["label"] if act != t else None,
+        by_day.append({"label": data["days"][t]["label"], "t": t, "today": t == data["today_index"], "act": data["days"][act]["label"] if act != t else None,
                        "add_games": [_games(p, days_left, t) for p in fas],
                        "drop_games": [0 if d is None else _games(d, days_left, t) for d in drops],
                        "rows": rows})
 
+    def game_days(p):
+        return [d for d in days_left if p["games"][d] and p["prob"][d] > 0]
+
     return {
-        "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "trend": p.get("trend")} for p in fas],
-        "drops": [{"name": "Nobody (open roster spot)", "open": True} if d is None else {"name": d["name"]} for d in drops],
+        "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "trend": p.get("trend"),
+                  "g": game_days(p)} for p in fas],
+        "drops": [{"name": "Nobody (open roster spot)", "open": True, "g": []} if d is None else
+                  {"name": d["name"], "g": game_days(d)} for d in drops],
+        "dl": [{"l": x["label"].split()[0], "dt": x["date"]} for x in data["days"]],
         "days": by_day, "cats": [c[0] for c in CATS],
     }
 

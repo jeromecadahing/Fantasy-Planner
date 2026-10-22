@@ -70,6 +70,9 @@ td:first-child{color:var(--muted);white-space:nowrap}
 .wi select{font:500 1rem/1.2 Barlow,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--field);
 border:1px solid var(--rule);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
 .wi select:focus-visible{outline:2px solid var(--you);outline-offset:1px}
+.wibest p{margin:0 0 12px;font-size:.95rem}
+.wib{font:600 .85rem/1 Barlow,sans-serif;color:var(--on-you);background:var(--you);border:0;border-radius:6px;padding:6px 10px;margin-left:6px;cursor:pointer}
+.wib:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .wiout .lift{margin-bottom:6px}.wiout p{margin:0 0 8px;font-size:.93rem}
 .cg{display:grid;grid-template-columns:repeat(9,1fr);gap:5px;margin:10px 0 4px}
 .cc{border:1px solid var(--rule);border-radius:7px;padding:6px 2px;text-align:center;background:var(--field)}
@@ -235,18 +238,43 @@ def _scenario(sc):
 
 WI_JS = r"""(function(){
 var D=JSON.parse(document.getElementById('wi-data').textContent);
-var T=document.getElementById('wi-day'),A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out');
+var T=document.getElementById('wi-day'),A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out'),B=document.getElementById('wi-best');
 function opt(sel,t,v){var o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
 function gm(k){return k+' game'+(k==1?'':'s');}
 D.days.forEach(function(d,i){opt(T,(d.today?'Today, ':'')+d.label,i);});
-function fill(){
- var d=D.days[+T.value],ka=A.value,kr=R.value;A.innerHTML='';R.innerHTML='';
- D.adds.forEach(function(p,i){opt(A,p.name+' ('+p.team+', '+(d.add_games[i]?gm(d.add_games[i]):'no games left')+(p.status!=='Healthy'?', '+p.status:'')+')',i);});
- D.drops.forEach(function(p,i){opt(R,p.open?p.name:p.name+' ('+gm(d.drop_games[i])+' left)',i);});
- if(ka!=='')A.value=ka; if(kr!=='')R.value=kr;
-}
 function sg(v,s){return (v>0?'+':v<0?'\u2212':'\u00b1')+Math.abs(v)+(s||'');}
 function tone(v){return v>0?'pos':v<0?'neg':'flat';}
+function ms(dt){var p=dt.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2]);}
+// Game days from day t (or before t), with back-to-back pairs flagged.
+function sched(g,from,until){
+  var ds=g.filter(function(d){return d>=from&&d<until;}),out=[],b2b=false;
+  ds.forEach(function(d,i){var lab=D.dl[d].l;
+    if(i>0&&ms(D.dl[d].dt)-ms(D.dl[ds[i-1]].dt)===864e5){b2b=true;}
+    out.push(lab);});
+  return {n:ds.length,txt:out.join(', '),b2b:b2b};
+}
+function b2bPairs(g,from){
+  var ds=g.filter(function(d){return d>=from;}),pairs=[];
+  for(var i=1;i<ds.length;i++){if(ms(D.dl[ds[i]].dt)-ms(D.dl[ds[i-1]].dt)===864e5)pairs.push(D.dl[ds[i-1]].l+'\u2013'+D.dl[ds[i]].l);}
+  return pairs;
+}
+function bestDrop(row){var bi=0;row.forEach(function(x,i){if(x[0]>row[bi][0]||(x[0]===row[bi][0]&&x[1]>row[bi][1]))bi=i;});return bi;}
+function fill(){
+ var d=D.days[+T.value],ka=A.value,kr=R.value;A.innerHTML='';R.innerHTML='';
+ var order=D.adds.map(function(p,i){var row=d.rows[i];return {i:i,best:row?row[bestDrop(row)][0]:-1e9};});
+ order.sort(function(x,y){return y.best-x.best;});
+ order.forEach(function(o){var p=D.adds[o.i],s=sched(p.g,d.t,1e9);
+   var lab=p.name+' ('+p.team+(s.n?': '+s.txt+(s.b2b?', back-to-back':''):', no games left')+(p.status!=='Healthy'?', '+p.status:'')+')';
+   if(s.n)lab+='  best '+sg(Math.round(o.best/10),'%');
+   opt(A,lab,o.i);});
+ D.drops.forEach(function(p,i){var s=sched(p.g,d.t,1e9);opt(R,p.open?p.name:p.name+' (gives up '+(s.n?s.txt:'nothing')+')',i);});
+ if(ka!=='')A.value=ka; if(kr!=='')R.value=kr;
+ var top=order[0];
+ if(top&&top.best>=10){var row=d.rows[top.i],bd=bestDrop(row);
+   B.innerHTML='<p>Best move starting '+d.label+': <strong>add '+D.adds[top.i].name+'</strong>, '+(D.drops[bd].open?'using your open spot':'drop '+D.drops[bd].name)+' <span class="delta pos">'+sg(Math.round(row[bd][0]/10),'%')+'</span> <button type="button" class="wib" id="wi-show">Show it</button></p>';
+   document.getElementById('wi-show').onclick=function(){A.value=top.i;R.value=bd;show();};
+ } else B.innerHTML='<p class="dc">No pickup starting '+d.label+' raises your chance to win by a point or more. Saving the add may be the better play.</p>';
+}
 function show(){
  var d=D.days[+T.value],a=+A.value,r=+R.value,p=D.adds[a],dp=D.drops[r],row=d.rows[a];
  if(!row){O.innerHTML='<p class="empty">'+p.name+' has no games left from '+d.label+', so adding him then wouldn\u2019t change anything. Pick an earlier day.</p>';return;}
@@ -254,14 +282,20 @@ function show(){
  var cats=(D.base.cats+x[1]/100).toFixed(1),st=x[3]/10,cells='';
  D.cats.forEach(function(c,i){var bb=Math.round(D.base.catP[i]*100),aa=Math.max(0,Math.min(100,bb+x[2][i])),dd=aa-bb;
   cells+='<div class="cc'+(dd>=3?' pos':dd<=-3?' neg':'')+'"><b>'+c+'</b><span>'+aa+'%</span><small class="'+tone(dd)+'">'+sg(dd)+'</small></div>';});
- var g=d.drop_games[r],who=dp.open?'using your open roster spot':'dropping '+dp.name+(g?' (he gives up '+gm(g)+')':' (no games left to give up)');
+ var sa=sched(p.g,d.t,1e9),sd=sched(dp.g,d.t,1e9),pairs=b2bPairs(p.g,d.t);
+ var who=dp.open?'using your open roster spot':'dropping '+dp.name+(sd.n?' (he gives up '+sd.txt+')':' (no games left to give up)');
+ var best=bestDrop(row),bnote=best!==r?' Best drop for him: '+(D.drops[best].open?'your open spot':D.drops[best].name)+' ('+sg(Math.round(row[best][0]/10),'%')+').':'';
  O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(dw)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(dw)+'">'+sg(dw,'%')+'</span></p>'
-  +'<p>Adding '+p.name+' to play from '+d.label+' ('+gm(d.add_games[a])+') and '+who+'. '
+  +'<p>Adding '+p.name+' ('+p.team+'), who plays '+sa.txt+' for you, and '+who+'. '
   +(d.act?'Make the move in ESPN on '+d.act+'. ':'')+'Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
-  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.</p>'
+  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.'+bnote+'</p>'
+  +(pairs.length?'<p class="dc">Back-to-back: '+pairs.join(', ')+'. Teams sometimes rest players on the second night; the simulation doesn\u2019t assume that, so check the news before relying on both games.</p>':'')
   +(p.trend?'<p class="dc">'+p.trend+'</p>':'')+'<div class="cg">'+cells+'</div>';
 }
-T.addEventListener('change',function(){fill();show();});A.addEventListener('change',show);R.addEventListener('change',show);fill();show();
+T.addEventListener('change',function(){fill();show();});
+A.addEventListener('change',function(){var row=D.days[+T.value].rows[+A.value];if(row)R.value=bestDrop(row);show();});
+R.addEventListener('change',show);
+fill();var d0=D.days[0],o0=+A.value;if(d0.rows[o0])R.value=bestDrop(d0.rows[o0]);show();
 })();"""
 
 
@@ -278,10 +312,10 @@ def _whatif(plan):
     res = plan["result"]
     data["base"] = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-    return (sc + '<p class="hint">Pick a day, a free agent and who you’d drop to see how the rest of this matchup changes. '
+    return (sc + '<p class="hint">Pick a day, a free agent and who you’d drop to see how the rest of this matchup changes. Free agents are listed by how much they can help from that day, with the days they play. '
             'Every combination was simulated when the page was built, and compares against making no moves.</p>'
             '<div class="wi"><label>Starting<select id="wi-day"></select></label><label>Add<select id="wi-add"></select></label>'
-            '<label>Drop<select id="wi-drop"></select></label></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
+            '<label>Drop<select id="wi-drop"></select></label></div><div class="wibest" id="wi-best"></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
 
 
