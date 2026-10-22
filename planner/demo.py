@@ -6,8 +6,22 @@ SCHED = {"A": [1, 0, 1, 0, 1, 0, 1], "B": [0, 1, 0, 1, 0, 1, 0], "C": [1, 1, 0, 
          "D": [0, 0, 1, 0, 1, 0, 1], "E": [1, 0, 1, 1, 0, 1, 0], "F": [0, 1, 0, 0, 1, 0, 1]}
 
 
+ELIG = {"PG": ["PG", "G", "UT"], "SG": ["SG", "G", "UT"], "G": ["PG", "SG", "G", "UT"],
+        "SF": ["SF", "F", "UT"], "PF": ["PF", "F", "UT"], "F": ["SF", "PF", "F", "UT"],
+        "C": ["C", "UT"], "FC": ["PF", "C", "F", "UT"], "GF": ["SG", "SF", "G", "F", "UT"]}
+POS = {"Marcus Vale": "PG", "Dorian Pike": "GF", "Theo Amari": "C", "Jalen Cross": "SG", "Rafi Okoye": "FC",
+       "Cole Brennan": "G", "Isaiah Monroe": "C", "Nico Ferreira": "SF", "Andre Wells": "PG", "Malik Haynes": "PF",
+       "Grant Sato": "SG", "Kofi Mensah": "FC", "Luca Varga": "PG", "Devin Royce": "GF",
+       "Kai Laurent": "PG", "Bram Ostrowski": "SG", "Tariq Bell": "GF", "Owen Achebe": "C", "Ruben Diaz": "PG",
+       "Sami Kowal": "PF", "Elijah Ford": "SG", "Victor Lunde": "C", "Jonah Pratt": "SF", "Tyrese Gamble": "G",
+       "Felix Mora": "F", "Hugo Lindqvist": "PG", "Aaron Cobb": "C",
+       "Zeke Holloway": "PG", "Bastian Kroll": "C", "Miles Okafor": "SG", "Paolo Rinaldi": "SF",
+       "Desmond Hart": "FC", "Remy Tolbert": "PG", "Ivo Petrov": "C", "Calvin Brooks": "G"}
+
+
 def _p(name, sched, stats, status="Healthy", prob=1.0, ir=False, trend=None):
-    return {"name": name, "team": "DEMO", "pos": "", "status": status, "ir": ir, "trend": trend,
+    pos = POS.get(name, "G")
+    return {"name": name, "team": "DEMO", "pos": pos, "elig": ELIG[pos], "status": status, "ir": ir, "trend": trend,
             "games": [bool(g) for g in SCHED[sched]], "prob": [prob] * 7,
             "s": dict(zip(SK, stats))}
 
@@ -19,7 +33,7 @@ def load():
     zero = [0.0] * 11
     return {
         "league": {"name": "Demo league", "week": 1},
-        "days": days, "today_index": 0, "adds_used": 0, "sofar_note": None,
+        "days": days, "today_index": 0, "lineup_slots": ["PG", "SG", "SF", "PF", "C", "G", "F", "UT", "UT", "UT"], "adds_used": 0, "sofar_note": None,
         "me": {"name": "Your team", "sofar": zero, "players": [
             _p("Marcus Vale", "A", [8.5, 18.2, 5.1, 5.8, 2.6, 4.4, 8.9, 1.3, 0.3, 3.1]),
             _p("Dorian Pike", "B", [7.9, 16.5, 4.2, 5.0, 2.1, 6.8, 3.9, 1.1, 0.6, 2.2]),
