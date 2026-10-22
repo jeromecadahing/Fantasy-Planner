@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from espn_api.basketball import League
-from espn_api.basketball.constant import PRO_TEAM_MAP
+from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
 
 ET = ZoneInfo("America/New_York")
 STAT_KEYS = {"fgm": "FGM", "fga": "FGA", "ftm": "FTM", "fta": "FTA", "tpm": "3PM",
@@ -17,6 +17,9 @@ STATUS = {
     "QUESTIONABLE": ("Questionable", 0.5, 0.8), "DOUBTFUL": ("Doubtful", 0.2, 0.6),
     "OUT": ("Out", 0.0, 0.0), "INJURY_RESERVE": ("Out", 0.0, 0.0), "SUSPENSION": ("Suspended", 0.0, 0.0),
 }
+
+
+NOT_ACTIVE = {"BE", "IR", "Rookie", ""}
 
 
 class SetupError(SystemExit):
@@ -152,7 +155,8 @@ def _player(p, year, days, today_index, team_games, ir=False):
         if pr == 0 and ret and date.fromisoformat(d["date"]) >= ret:
             pr = 0.6
         prob.append(pr)
-    return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position,
+    elig = [x for x in (getattr(p, "eligibleSlots", None) or []) if x and x not in NOT_ACTIVE]
+    return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position, "elig": elig,
             "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
             "trend": _trend(p, year)}
 
@@ -195,6 +199,21 @@ def _sofar(stats, roster):
             tot[a], tot[m] = att, att * rate
         note = "FG% and FT% so far use estimated attempts, because ESPN only reports them as percentages."
     return tot, note
+
+
+def _lineup_slots(lg):
+    """Active lineup slots from the league settings, e.g. PG, SG, SF, PF, C, G, F, UT, UT, UT."""
+    try:
+        raw = lg.espn_request.league_get(params={"view": "mSettings"})
+        counts = raw["settings"]["rosterSettings"]["lineupSlotCounts"]
+    except Exception:
+        return []
+    out = []
+    for sid, k in sorted(counts.items(), key=lambda x: int(x[0])):
+        name = POSITION_MAP.get(int(sid), "")
+        if k and name not in NOT_ACTIVE:
+            out += [name] * int(k)
+    return out
 
 
 def _adds_used(lg, cfg):
@@ -279,6 +298,6 @@ def load(cfg):
     return {
         "league": {"name": lg.settings.name, "week": lg.currentMatchupPeriod},
         "days": days, "today_index": today_index,
-        "adds_used": _adds_used(lg, cfg), "sofar_note": note,
+        "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(lg),
         "me": me, "opp": opp, "fa": fa, "extra": extra,
     }
