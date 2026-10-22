@@ -30,6 +30,7 @@ class Config:
     espn_s2: str = ""
     swid: str = ""
     active_slots: int = 10
+    lineup_slots: tuple = ()
     roster_size: int = 13
     max_adds: int = 6
     add_delay_days: int = 0
@@ -54,6 +55,7 @@ class Config:
             espn_s2=_env("ESPN_S2"),
             swid=_env("SWID"),
             active_slots=_int("ACTIVE_SLOTS", 10),
+            lineup_slots=tuple(x.strip().upper() for x in _env("LINEUP_SLOTS").split(",") if x.strip()),
             roster_size=_int("ROSTER_SIZE", 13),
             max_adds=_int("MAX_ADDS", 6),
             add_delay_days=_int("ADD_DELAY_DAYS", 0),
