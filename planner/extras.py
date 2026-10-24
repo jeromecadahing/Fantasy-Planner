@@ -53,9 +53,15 @@ def deadlines(data, plan, cfg):
                 lock, why = m["add_tip"], f"{m['add']} tips off"
         if not lock:
             continue
+        texts = [f"Add {m['add']}" + (f", drop {m['drop']}" if m["drop"] else "") for m in todo]
+        if d == len(days) - 1:  # last day: the moves that set up next week
+            # Moves that wait for a dropped player's game to finish happen after the lock, so they
+            # aren't listed against it; the Set up next week panel gives their timing.
+            for m in (plan.get("nextweek") or {}).get("moves") or []:
+                if not m["drop_after_game"]:
+                    texts.append(f"For next week: add {m['add']}" + (f", drop {m['drop']}" if m["drop"] else ""))
         out.append({"date": days[d]["date"], "label": days[d]["label"], "today": d == data["today_index"],
-                    "lock": lock, "lock_txt": both(lock), "why": why, "players": len(playing),
-                    "moves": [f"Add {m['add']}" + (f", drop {m['drop']}" if m["drop"] else "") for m in todo]})
+                    "lock": lock, "lock_txt": both(lock), "why": why, "players": len(playing), "moves": texts})
     return out
 
 

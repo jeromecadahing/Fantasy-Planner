@@ -45,6 +45,7 @@ class Config:
     what_if: str = ""
     whatif_sims: int = 600
     watch_players: tuple = ()
+    next_matchup_end: str = ""
 
     @classmethod
     def from_env(cls):
@@ -70,5 +71,6 @@ class Config:
             pickup_sims=_int("PICKUP_SIMS", 2500),
             what_if=_env("WHAT_IF"),
             whatif_sims=_int("WHATIF_SIMS", 600),
+            next_matchup_end=_env("NEXT_MATCHUP_END"),
             watch_players=tuple(n.strip() for n in _env("WATCH_PLAYERS").split(",") if n.strip()),
         )

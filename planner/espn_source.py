@@ -6,6 +6,7 @@ from espn_api.basketball import League
 from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
 
 from . import cards
+from .check import fingerprint
 
 ET = ZoneInfo("America/New_York")
 UTC = ZoneInfo("UTC")
@@ -110,6 +111,19 @@ def _matchup_days(lg, cfg, sp_date, day_tips):
     return days, today_index
 
 
+def _next_days(cfg, sp_date, days):
+    """The days of next week's matchup: the Monday to Sunday after this matchup ends, or up to NEXT_MATCHUP_END."""
+    if not days:
+        return []
+    end = date.fromisoformat(days[-1]["date"])
+    start = end + timedelta(days=1)
+    stop = date.fromisoformat(cfg.next_matchup_end) if cfg.next_matchup_end else start + timedelta(days=6 - start.weekday())
+    if stop < start:
+        stop = start + timedelta(days=6)
+    return [{"sp": sp, "date": d.isoformat(), "label": d.strftime("%a %b %-d")}
+            for sp, d in sorted(sp_date.items()) if start <= d <= stop]
+
+
 def _split(p, year, key):
     return p.stats.get(f"{year}_{key}") or {}
 
@@ -173,7 +187,11 @@ def _trend(p, year):
     return None
 
 
+_CTX = {"team_tips": {}, "next_days": []}
+
+
 def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
+    team_tips = team_tips if team_tips is not None else _CTX["team_tips"]
     stats, season_long = _blend(p, year)
     if stats is None:
         return None
@@ -191,7 +209,10 @@ def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
     return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position, "elig": elig,
             "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
             "trend": _trend(p, year),
-            "tips": [((team_tips or {}).get(p.proTeam) or {}).get(d["sp"]) for d in days]}
+            "tips": [((team_tips or {}).get(p.proTeam) or {}).get(d["sp"]) for d in days],
+            "next_games": [d["sp"] in played for d in _CTX["next_days"]],
+            "next_prob": [p_later if not (p_later == 0 and ret and date.fromisoformat(d["date"]) >= ret) else 0.6
+                          for d in _CTX["next_days"]]}
 
 
 def _with_stats(lg, players):
@@ -296,7 +317,7 @@ def _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa):
     out = []
     players = _with_stats(lg, [p for p, _ in found])
     for p, (_, owner) in zip(players, found):
-        x = _player(p, lg.year, days, today_index, team_games, team_tips=team_tips)
+        x = _player(p, lg.year, days, today_index, team_games)
         if x:
             x["owner"] = owner
             out.append(x)
@@ -392,8 +413,11 @@ def load(cfg):
             day_tips[sp] = min(day_tips.get(sp, iso), iso)
     days, today_index = _matchup_days(lg, cfg, sp_date, day_tips)
     today_sp = _today_sp(lg, sp_date)
+    _CTX["team_tips"] = team_tips
+    _CTX["next_days"] = _next_days(cfg, sp_date, days)
 
-    box = next((b for b in lg.box_scores() if cfg.team_id in
+    boxes = list(lg.box_scores())
+    box = next((b for b in boxes if cfg.team_id in
                 (getattr(b.home_team, "team_id", b.home_team), getattr(b.away_team, "team_id", b.away_team))), None)
     if box is None:
         raise SetupError(f"No matchup found for team {cfg.team_id} this week. Check TEAM_ID, or this may be a bye week.")
@@ -412,6 +436,23 @@ def load(cfg):
 
     me, note = side(me_team, me_stats)
     opp, _ = side(opp_team, opp_stats)
+
+    # Every other team in the league, for the league-wide weekly projection.
+    stats_by_team = {}
+    for b in boxes:
+        for t, st in ((b.home_team, b.home_stats), (b.away_team, b.away_stats)):
+            tid = getattr(t, "team_id", t)
+            if tid is not None:
+                stats_by_team[tid] = st
+    others = []
+    for t in lg.teams:
+        if t.team_id in (cfg.team_id, getattr(opp_team, "team_id", None)):
+            continue
+        try:
+            o, _ = side(t, stats_by_team.get(t.team_id))
+            others.append(o)
+        except Exception as exc:  # one odd roster shouldn't stop the whole plan
+            print(f"Skipped {t.team_name} in the league projection: {exc}")
 
     fa_raw = _with_stats(lg, lg.free_agents(size=cfg.fa_pool))
     fa = [x for x in (_player(p, lg.year, days, today_index, team_games, team_tips=team_tips) for p in fa_raw) if x]
@@ -435,5 +476,6 @@ def load(cfg):
         "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(counts),
         "ir_slots": int(counts.get("13", 0) or 0), "ir_used": sum(1 for p in me_team.roster if p.lineupSlot == "IR"),
         "injury_watch": watch, "watch_missing": missing,
-        "me": me, "opp": opp, "fa": fa, "extra": extra,
+        "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "next_days": _CTX["next_days"],
+        "roster_fp": fingerprint((p.playerId, p.lineupSlot == "IR") for p in me_team.roster),
     }

@@ -6,7 +6,7 @@ import sys
 
 import requests
 
-from . import demo, extras, report, sim
+from . import demo, extras, league, nextweek, report, sim
 from .config import Config
 
 
@@ -24,8 +24,10 @@ def main():
         data = espn_source.load(cfg)
 
     plan = sim.build_plan(data, cfg)
-    plan["deadlines"] = extras.deadlines(data, plan, cfg)
     extras.advise(data, cfg, plan)
+    plan["nextweek"] = nextweek.plan(data, cfg, plan)
+    plan["deadlines"] = extras.deadlines(data, plan, cfg)
+    plan["league"] = league.table(data, cfg, plan, plan["slots"])
     page = os.environ.get("PAGE_URL", "")
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "reminders.ics"), "w", encoding="utf-8", newline="") as f:
@@ -34,11 +36,14 @@ def main():
         f.write(report.render(data, plan))
     with open(os.path.join(args.out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump({"result": plan["result"], "picks": plan["picks"], "notes": plan["notes"],
-                   "scenario": plan.get("scenario"), "deadlines": plan["deadlines"],
+                   "scenario": plan.get("scenario"), "deadlines": plan["deadlines"], "league": plan["league"],
+                   "nextweek": plan["nextweek"], "roster_fp": data.get("roster_fp"),
                    "injury_watch": [{k: x.get(k) for k in ("name", "team", "status", "owner", "ret", "verdict", "why")}
                                     for x in data.get("injury_watch") or []]}, f, indent=1)
 
     text = report.summary(data, plan)
+    if os.environ.get("TRIGGER") == "roster-change":
+        text = "Roster change spotted, so the plan has been rebuilt.\n" + text
     print(text)
     if cfg.discord_webhook:
         try:

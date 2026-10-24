@@ -19,7 +19,8 @@ POS = {"Marcus Vale": "PG", "Dorian Pike": "GF", "Theo Amari": "C", "Jalen Cross
        "Sami Kowal": "PF", "Elijah Ford": "SG", "Victor Lunde": "C", "Jonah Pratt": "SF", "Tyrese Gamble": "G",
        "Felix Mora": "F", "Hugo Lindqvist": "PG", "Aaron Cobb": "C",
        "Zeke Holloway": "PG", "Bastian Kroll": "C", "Miles Okafor": "SG", "Paolo Rinaldi": "SF",
-       "Desmond Hart": "FC", "Remy Tolbert": "PG", "Ivo Petrov": "C", "Calvin Brooks": "G"}
+       "Desmond Hart": "FC", "Remy Tolbert": "PG", "Ivo Petrov": "C", "Calvin Brooks": "G",
+       "Jordan Pace": "SF", "Marco Quill": "PF", "Eli Stroud": "SG"}
 
 
 def _p(name, sched, stats, status="Healthy", prob=1.0, ir=False, trend=None):
@@ -113,7 +114,33 @@ def load():
     data["today_index"] = min(date.today().weekday(), 6)
     data["injury_watch"], data["watch_missing"] = _injured(), []
     data["ir_slots"], data["ir_used"] = 1, 1
+    data["others"] = _others(data, rng)
+    # Next week: a different mix of game days per demo schedule.
+    nxt = {"A": [1, 1, 0, 1, 0, 1, 1], "B": [0, 1, 0, 0, 1, 0, 0], "C": [1, 0, 1, 0, 1, 0, 1],
+           "D": [0, 1, 1, 0, 0, 1, 0], "E": [1, 0, 0, 1, 0, 0, 1], "F": [0, 0, 1, 1, 1, 1, 0]}
+    data["next_days"] = [{"date": (monday + timedelta(days=7 + i)).isoformat(),
+                          "label": (monday + timedelta(days=7 + i)).strftime("%a %b %-d")} for i in range(7)]
+    for p in data["me"]["players"] + data["opp"]["players"] + data["fa"]:
+        p["next_games"] = [bool(g) for g in nxt[p["sched"]]]
+        p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
     return data
+
+
+def _others(data, rng):
+    """Fictional rest-of-league teams, built by reshuffling and rescaling the opponent's players."""
+    out = []
+    for k, (name, f) in enumerate((("Dunk Dynasty", 1.06), ("Splash Bros Inc", 0.97), ("Board Men", 1.02),
+                                    ("Fast Break Fund", 0.92), ("Glass Cleaners", 1.0))):
+        players = []
+        for i, p in enumerate(data["opp"]["players"]):
+            q = dict(p)
+            q["name"] = f"{name.split()[0]} player {i + 1}"
+            q["s"] = {key: round(v * f * rng.uniform(0.85, 1.15), 2) for key, v in p["s"].items()}
+            sched = "ABCDEF"[(i + k) % 6]
+            q["games"] = [bool(g) for g in SCHED[sched]]
+            players.append(q)
+        out.append({"name": name, "sofar": [0.0] * 11, "players": players})
+    return out
 
 
 def _load(days, zero):
@@ -160,5 +187,8 @@ def _load(days, zero):
             _p("Remy Tolbert", "D", [3.3, 8.2, 1.3, 1.5, 1.9, 2.4, 4.8, 1.2, 0.2, 1.4]),
             _p("Ivo Petrov", "E", [3.5, 6.1, 1.2, 2.2, 0.0, 7.4, 1.0, 0.5, 1.4, 0.9]),
             _p("Calvin Brooks", "C", [3.9, 9.3, 2.1, 2.4, 2.1, 2.7, 2.8, 0.9, 0.2, 1.1]),
+            _p("Jordan Pace", "F", [4.6, 9.9, 2.3, 2.9, 1.8, 5.2, 2.6, 1.1, 0.6, 1.3]),
+            _p("Marco Quill", "F", [4.1, 8.6, 1.7, 2.1, 1.5, 6.4, 1.9, 0.8, 0.9, 1.0]),
+            _p("Eli Stroud", "B", [3.7, 8.1, 1.5, 1.8, 2.0, 3.1, 3.8, 1.2, 0.3, 1.3]),
         ],
     }

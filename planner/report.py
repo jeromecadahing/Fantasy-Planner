@@ -4,6 +4,7 @@ import json
 from html import escape
 from zoneinfo import ZoneInfo
 
+from .extras import clock
 from .sim import CATS, fmt_cat
 
 CSS = """
@@ -102,8 +103,8 @@ border:1px solid var(--rule);border-left:5px solid var(--you);border-radius:12px
 .lk-todo span{font:600 .92rem/1 Barlow,sans-serif;padding:5px 8px;border-radius:6px;background:var(--you-soft)}
 .lk-next{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px;border-top:1px solid var(--rule);padding-top:8px;font-size:.88rem;color:var(--muted)}
 .lk-next b{color:var(--ink);font-weight:600}
-.lk-next a{color:var(--you);font-weight:600;margin-left:auto}
-@media (max-width:560px){.lock{grid-template-columns:1fr}.lk-next a{margin-left:0}
+.lk-next a{color:var(--you);font-weight:600}
+@media (max-width:560px){.lock{grid-template-columns:1fr}.lk-cal{margin-left:0}
 .tabs{gap:0}.tabs button{font-size:1rem;padding:10px 8px 9px}}
 .seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:0 0 12px}
 .seg button{font:600 .92rem/1 Barlow,sans-serif;background:var(--field);color:var(--muted);border:0;padding:8px 12px;cursor:pointer}
@@ -141,6 +142,32 @@ table.st tr.ir td{color:var(--muted)}
 .news p{margin:2px 0 6px}.news .dc{display:block}
 .order{margin:0 0 14px;padding-left:1.4rem;display:grid;gap:6px}
 .order li::marker{font:700 1.05rem "Barlow Condensed","Arial Narrow",sans-serif;color:var(--you)}
+.pf{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 12px}.pf .seg{margin:0}
+.pf-q input{font:500 .95rem/1.2 Barlow,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--field);border:1px solid var(--rule);
+border-radius:8px;padding:8px 10px;width:12rem;max-width:100%}
+.pf-q input:focus-visible{outline:2px solid var(--you);outline-offset:1px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.pf-chips{flex-wrap:wrap}
+table.st th button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;white-space:nowrap}
+table.st th button:focus-visible{outline:2px solid var(--you);outline-offset:2px;border-radius:3px}
+table.st th[aria-sort="descending"] button::after{content:" ▾";color:var(--you)}
+table.st th[aria-sort="ascending"] button::after{content:" ▴";color:var(--you)}
+table.st th[aria-sort="descending"],table.st th[aria-sort="ascending"]{color:var(--ink)}
+@media (max-width:560px){.pf-q,.pf-q input{width:100%}.pf-chips{display:flex;width:100%}.pf-chips button{flex:1 1 auto;padding:8px 8px}}
+table.lg th[scope=row]{text-align:left;font:600 .95rem/1.2 Barlow,sans-serif;color:var(--ink);position:sticky;left:0;background:var(--surface);padding:7px 10px 7px 6px;white-space:nowrap;border-top:1px solid var(--rule)}
+table.lg th[scope=row] small{display:block;font-weight:400;color:var(--muted);font-size:.78rem}
+table.lg td.lg-c small{display:block;font-size:.72rem;color:var(--muted);font-weight:400}
+table.lg td.lg-c.hi{color:var(--good)}table.lg td.lg-c.hi small{color:var(--good)}
+table.lg td.lg-c.lo{color:var(--bad)}table.lg td.lg-c.lo small{color:var(--bad)}
+table.lg tr.lg-me th[scope=row],table.lg tr.lg-me td,table.lg tr.lg-plan th[scope=row],table.lg tr.lg-plan td{background:var(--you-soft)}
+table.lg tr.lg-me td.lg-c,table.lg tr.lg-plan td.lg-c{font-weight:600}
+table.lg tr.lg-opp th[scope=row]{box-shadow:inset 3px 0 0 var(--opp)}
+table.lg td.lg-w b{font:700 1.05rem/1 "Barlow Condensed","Arial Narrow",sans-serif}
+table.lg td.lg-w small{display:block;font-size:.72rem;color:var(--muted)}
+.lk-cal{margin-left:auto;display:inline-flex;gap:12px;align-items:center;flex-wrap:wrap}
+.lk-cal button{font:600 .88rem/1 Barlow,sans-serif;color:var(--you);background:none;border:1px solid var(--rule);border-radius:6px;padding:5px 8px;cursor:pointer}
+.lk-cal button:focus-visible{outline:2px solid var(--you);outline-offset:1px}
+.lk-and{grid-column:1/-1;margin:0;font-size:.85rem}
 [hidden]{display:none!important}
 @media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
@@ -390,6 +417,115 @@ def _whatif(plan):
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
 
 
+def _nextweek(plan):
+    nw = plan.get("nextweek") or {}
+    if not nw.get("range"):
+        return f'<p class="empty">{escape(nw.get("note") or "Next week’s schedule isn’t available yet.")}</p>'
+    day = escape(nw["day"])
+    intro = (f'<p class="hint">Adds reset when next week’s matchup starts, so any left on {day} are free. '
+             f'These moves set up next week ({escape(nw["range"])}) without costing you anything this week.</p>')
+    games = nw.get("roster_games") or []
+    few = [f"{escape(n)} ({g})" for n, g in games if g <= 2]
+    roster_line = (f'<p class="dc" style="margin:0 0 10px">Fewest games next week on your roster: {", ".join(few)}.</p>'
+                   if few else "")
+    if not nw.get("moves"):
+        stash = (f'<p class="dc">A spare add could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
+                 if nw.get("stash") else "")
+        return intro + roster_line + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash
+    gain = nw["after_starts"] - nw["base_starts"]
+    h = (intro + f'<p class="lift"><span class="cd">{nw["base_starts"]:.0f}</span> <span class="arrow">→</span> '
+         f'<span class="cd strong">{nw["after_starts"]:.0f}</span> expected starter games next week'
+         f'{f" (+{gain:.1f})" if gain >= 0.5 else ""}, using {len(nw["moves"])} of your {nw["adds_left"]} spare '
+         f'add{"s" if nw["adds_left"] != 1 else ""}.</p>' + roster_line + '<ol class="steps">')
+    tag = '<span class="tag now">Do today</span>' if nw.get("today") else '<span class="tag">Planned</span>'
+    for m in nw["moves"]:
+        status = f' ({escape(m["add_status"])})' if m["add_status"] != "Healthy" else ""
+        if m["drop"]:
+            after = ""
+            if m["drop_after_game"]:
+                after = f" after his {day.split()[0]} game" + (f" ends (about {escape(clock(m['free_from']))} UK)" if m.get("free_from") else "")
+            drop = (f'Drop {escape(m["drop"])}{after}'
+                    + f' ({len(m["drop_days"])} game{"s" if len(m["drop_days"]) != 1 else ""} next week).'
+                    + ("" if m["drop_is_streamer"] else " This one is a permanent cut."))
+        else:
+            drop = "Use your open roster spot."
+        trend = f'<p>{escape(m["trend"])}</p>' if m.get("trend") else ""
+        h += (f'<li class="step"><div class="sh"><span class="dn">{day}</span>{tag}</div>'
+              f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
+              f'<p>{drop} He plays {len(m["add_days"])} game{"s" if len(m["add_days"]) != 1 else ""} next week: '
+              f'{escape(", ".join(m["add_days"]))}.</p>{trend}</li>')
+    h += "</ol>"
+    if nw.get("stash"):
+        h += f'<p class="dc">Spare add left over? It could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
+    late = any(m["drop_after_game"] for m in nw["moves"])
+    h += ('<p class="hint" style="margin-top:10px">Counts only games on days your lineup has room, so a player whose games '
+          'land on already-full days doesn’t score well here. This is rebuilt every run; make the moves on the last day.'
+          + (" A move that waits for a late game still works if you make it the next morning, but if ESPN has already started "
+             "the new matchup it uses one of next week’s adds instead." if late else "") + "</p>")
+    return h
+
+
+def _ord(n):
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def _league(plan):
+    L = plan.get("league")
+    if not L:
+        return ""
+    n = L["n_teams"]
+    third = max(1, round(n / 3))
+
+    def cell(t, c, mine):
+        r = t["ranks"][c]
+        cls = (" hi" if r <= third else " lo" if r > n - third else "") if mine else ""
+        return f'<td class="lg-c{cls}">{escape(t["shown"][c])}<small>{_ord(r)}</small></td>'
+
+    def chance(t):
+        if t.get("me"):
+            return "<td></td>"
+        w = round(t["win"] * 100)
+        cls = "pos" if w > 55 else "neg" if w < 45 else "flat"
+        plan_txt = f'<small>{round(t["win_plan"] * 100)}% with plan</small>' if "win_plan" in t else ""
+        return f'<td class="lg-w"><b class="{cls}">{w}%</b>{plan_txt}</td>'
+
+    teams = L["teams"]
+    me = next(t for t in teams if t.get("me"))
+    rivals = sorted((t for t in teams if not t.get("me")), key=lambda t: (not t.get("opp"), t["win"]))
+    rows = (f'<tr class="lg-me"><th scope="row">{escape(me["name"])}<small>You, no more moves</small></th>'
+            + "".join(cell(me, c, True) for c in range(9)) + "<td></td></tr>")
+    if L.get("plan_row"):
+        pr = L["plan_row"]
+        rows += (f'<tr class="lg-plan"><th scope="row">{escape(me["name"])}<small>With your streaming plan</small></th>'
+                 + "".join(cell(pr, c, True) for c in range(9)) + "<td></td></tr>")
+    for t in rivals:
+        tag = "<small>This week’s opponent</small>" if t.get("opp") else ""
+        rows += (f'<tr{" class=lg-opp" if t.get("opp") else ""}><th scope="row">{escape(t["name"])}{tag}</th>'
+                 + "".join(cell(t, c, False) for c in range(9)) + chance(t) + "</tr>")
+    head = "".join(f"<th>{escape(label)}</th>" for label, _, _ in CATS)
+    rivals_n = n - 1
+    line = f'As things stand you’d beat <strong>{L["beats"]} of {rivals_n}</strong> teams head-to-head this week'
+    if L.get("beats_plan") is not None:
+        line += f', or <strong>{L["beats_plan"]} of {rivals_n}</strong> with your streaming plan'
+    line += f'. Your average category rank is {L["avg_rank"]:.1f} out of {n}.'
+    best = [CATS[c][0] for c in range(9) if me["ranks"][c] == 1]
+    if best:
+        line += f' You’d lead the league in {_join_words(best)}.'
+    note = ("" if not L.get("partial") else
+            "<p class=dc>Only your matchup could be read this week, so the table shows just you and your opponent.</p>")
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>Your week across the league</h2>'
+            f'<p class="lift" style="font-size:1rem">{line}</p>'
+            f'<p class="hint">Projected final totals for this matchup week: what each team has already earned plus the rest of the '
+            f'week simulated from its current roster. The small number is the rank out of {n}. Other teams are shown with no '
+            f'pickups, so they may finish a little higher. The last column is your chance of beating that team if you played them.</p>'
+            f'{note}<div class="scroll"><table class="st lg"><thead><tr><th>Team</th>{head}<th>Your chance</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div></section>')
+
+
+def _join_words(xs):
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+
+
 # ---------- Deadline banner ----------
 
 def _lock(plan):
@@ -415,7 +551,11 @@ def _lock(plan):
             f'locks. Make any pickup and set your lineup before then.</p>'
             f'<div class="lk-todo" id="lk-todo">{todo}</div>'
             f'{"" if todo else "<p class=dc id=lk-none>No pickups planned for this day. Just check your lineup and late scratches.</p>"}</div>'
-            f'<div class="lk-next">{nxt}<a id="lk-cal" href="reminders.ics">Add deadlines to your calendar</a></div>'
+            f'<div class="lk-next">{nxt}<span class="lk-cal"><a id="lk-cal" href="reminders.ics">Add deadlines to your calendar</a>'
+            f'<button type="button" id="lk-copy" hidden>Copy calendar link</button></span></div>'
+            f'<p class="dc lk-and" id="lk-and" hidden>On Android this opens Google Calendar; tap <strong>Add</strong>. '
+            f'Google refreshes subscribed calendars only every several hours, so late plan changes can be missed. '
+            f'The Discord reminder is more dependable.</p>'
             f'<script type="application/json" id="lk-data">{blob}</script></section>')
 
 
@@ -454,6 +594,7 @@ def _players_tab(data):
     days = data["days"]
     ti = data["today_index"]
     tables = []
+    sort_cols = [c for c, _ in AVG_COLS] + ["FG%", "FT%", "Left"]
     for k, split in enumerate(SPLIT_ORDER):
         rows = ""
         for p in sorted(players, key=lambda p: (p["ir"], -((p.get("card") or {}).get("avgs", {}).get("Season", {}).get("PTS", 0)))):
@@ -462,22 +603,41 @@ def _players_tab(data):
             tag = f'{escape(p["team"])}, {escape(p["status"])}' if p["status"] != "Healthy" else escape(p["team"])
             if p["ir"]:
                 tag += ", IR"
+            flags = ["all"]
+            if left and not p["ir"]:
+                flags.append("week")
+            if ti < len(days) and p["games"][ti] and not p["ir"]:
+                flags.append("today")
+            flags.append("injured" if (p["ir"] or p["status"] != "Healthy") else "healthy")
+            attrs = (f' data-name="{escape(p["name"].lower())}" data-f="{" ".join(flags)}"'
+                     + (' class="ir"' if p["ir"] else ""))
             base = (p.get("card") or {}).get("avgs", {}).get("Season") if split in ("Last 15", "Last 7") else None
             if not a:
-                rows += (f'<tr{" class=ir" if p["ir"] else ""}><td>{escape(p["name"])}<small>{tag}</small></td>'
+                rows += (f'<tr{attrs}><td>{escape(p["name"])}<small>{tag}</small></td>'
                          f'<td colspan="11" style="text-align:left;color:var(--muted)">No games in this span</td>'
-                         f'<td>{len(left)}</td></tr>')
+                         f'<td data-v="{len(left)}">{len(left)}</td></tr>')
                 continue
-            cells = "".join(f'<td{_cmp_cls(a.get(c), base, c)}>{_num(a.get(c), 0 if c == "GP" else 1)}</td>' for c, _ in AVG_COLS)
-            rows += (f'<tr{" class=ir" if p["ir"] else ""}><td>{escape(p["name"])}<small>{tag}</small></td>{cells}'
-                     f'<td>{_pctx(a.get("FGM", 0), a.get("FGA", 0))}</td><td>{_pctx(a.get("FTM", 0), a.get("FTA", 0))}</td>'
-                     f'<td title="{escape(", ".join(left))}">{len(left)}</td></tr>')
-        head = "".join(f"<th>{l}</th>" for _, l in AVG_COLS)
+            cells = "".join(f'<td data-v="{a.get(c) or 0:.3f}"{_cmp_cls(a.get(c), base, c)}>{_num(a.get(c), 0 if c == "GP" else 1)}</td>'
+                            for c, _ in AVG_COLS)
+            fg = a.get("FGM", 0) / a["FGA"] if a.get("FGA") else 0
+            ft = a.get("FTM", 0) / a["FTA"] if a.get("FTA") else 0
+            rows += (f'<tr{attrs}><td>{escape(p["name"])}<small>{tag}</small></td>{cells}'
+                     f'<td data-v="{fg:.4f}">{_pctx(a.get("FGM", 0), a.get("FGA", 0))}</td>'
+                     f'<td data-v="{ft:.4f}">{_pctx(a.get("FTM", 0), a.get("FTA", 0))}</td>'
+                     f'<td data-v="{len(left)}" title="{escape(", ".join(left))}">{len(left)}</td></tr>')
+        head = "".join(f'<th aria-sort="none"><button type="button" data-col="{i + 1}" data-low="{1 if c == "TO" else 0}">{c}</button></th>'
+                       for i, c in enumerate(sort_cols))
         tables.append(f'<div class="scroll" data-split="{k}"{"" if k == 0 else " hidden"}><table class="st"><thead><tr>'
-                      f'<th>Player</th>{head}<th>FG%</th><th>FT%</th><th title="Games left this matchup">Left</th></tr></thead>'
-                      f'<tbody>{rows}</tbody></table></div>')
+                      f'<th>Player</th>{head}</tr></thead>'
+                      f'<tbody>{rows}</tbody></table><p class="empty pf-none" hidden>No players match this filter.</p></div>')
     seg = "".join(f'<button type="button" data-k="{k}" aria-pressed="{"true" if k == 0 else "false"}">{s_}</button>'
                   for k, s_ in enumerate(SPLIT_ORDER))
+    chips = "".join(f'<button type="button" data-f="{f}" aria-pressed="{"true" if f == "all" else "false"}">{l}</button>'
+                    for f, l in (("all", "All"), ("today", "Playing today"), ("week", "Playing this week"),
+                                 ("healthy", "Healthy"), ("injured", "Injured or IR")))
+    filters = (f'<div class="pf"><label class="pf-q"><span class="sr">Find a player</span>'
+               f'<input type="search" id="pf-q" placeholder="Find a player" autocomplete="off"></label>'
+               f'<div class="seg" id="split-seg">{seg}</div><div class="seg pf-chips" id="pf-chips">{chips}</div></div>')
 
     logs = ""
     for p in players:
@@ -498,7 +658,7 @@ def _players_tab(data):
                  f'<th>TO</th><th>FG</th><th>FT</th></tr></thead><tbody>{rows}</tbody></table></div></details>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Per-game averages</h2>'
             f'<p class="hint">Green and red on the Last 15 and Last 7 views mark stats well above or below his season average. '
-            f'“Left” is games remaining in this matchup.</p><div class="seg" id="split-seg">{seg}</div>{"".join(tables)}</section>'
+            f'“Left” is games remaining in this matchup. Tap a column heading to sort by it.</p>{filters}{"".join(tables)}</section>'
             f'<section class="panel"><h2>Game logs</h2><p class="hint">His last 10 games, newest first. Green and red compare each game '
             f'with his season average.</p><div class="logs">{logs or "<p class=empty>No games played yet this season.</p>"}</div></section>')
 
@@ -579,7 +739,38 @@ go((location.hash||'').slice(1),false);window.addEventListener('hashchange',func
 var seg=document.getElementById('split-seg');if(seg){seg.onclick=function(e){var b=e.target.closest('button');if(!b)return;
  [].forEach.call(seg.children,function(x){x.setAttribute('aria-pressed',x===b);});
  [].forEach.call(document.querySelectorAll('[data-split]'),function(t){t.hidden=t.dataset.split!==b.dataset.k;});};}
-var cal=document.getElementById('lk-cal');if(cal&&/^https?:$/.test(location.protocol)){var base=location.host+location.pathname.replace(/[^\/]*$/,'');cal.href='webcal://'+base+'reminders.ics';}
+// Filters and sorting apply to all four split tables, so switching split keeps your view.
+var q=document.getElementById('pf-q'),chips=document.getElementById('pf-chips'),flt='all',sortCol=0,sortDir=0;
+function apply(){var term=(q&&q.value||'').trim().toLowerCase();
+ [].forEach.call(document.querySelectorAll('[data-split]'),function(box){var shown=0;
+  [].forEach.call(box.querySelectorAll('tbody tr'),function(r){var ok=(' '+r.dataset.f+' ').indexOf(' '+flt+' ')>=0&&r.dataset.name.indexOf(term)>=0;r.hidden=!ok;if(ok)shown++;});
+  box.querySelector('.pf-none').hidden=shown>0;});}
+function val(r){var c=r.children[sortCol];if(!c||c.colSpan>1)return null;var v=parseFloat(c.dataset.v);return isNaN(v)?null:v;}
+function sortAll(){[].forEach.call(document.querySelectorAll('[data-split] tbody'),function(tb){
+ var rows=[].slice.call(tb.children),orig=rows.map(function(r,i){return i;});
+ rows.forEach(function(r,i){if(r.dataset.i===undefined)r.dataset.i=i;});
+ rows.sort(function(a,b){if(!sortCol)return a.dataset.i-b.dataset.i;var x=val(a),y=val(b);
+  if(x===null&&y===null)return a.dataset.i-b.dataset.i;if(x===null)return 1;if(y===null)return -1;return sortDir*(y-x)||a.dataset.i-b.dataset.i;});
+ rows.forEach(function(r){tb.appendChild(r);});});
+ [].forEach.call(document.querySelectorAll('[data-split] th[aria-sort]'),function(th){var b=th.querySelector('button');
+  th.setAttribute('aria-sort',sortCol&&+b.dataset.col===sortCol?(sortDir>0?'descending':'ascending'):'none');});}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-split] th button');if(!b)return;var c=+b.dataset.col;
+ // First tap sorts best-first (lowest first for TO), second tap reverses, third clears.
+ var best=b.dataset.low==='1'?-1:1;if(sortCol!==c){sortCol=c;sortDir=best;}else if(sortDir===best){sortDir=-best;}else{sortCol=0;sortDir=0;}sortAll();});
+if(q)q.addEventListener('input',apply);
+if(chips)chips.onclick=function(e){var b=e.target.closest('button');if(!b)return;flt=b.dataset.f;
+ [].forEach.call(chips.children,function(x){x.setAttribute('aria-pressed',x===b);});apply();};
+var cal=document.getElementById('lk-cal');if(cal&&/^https?:$/.test(location.protocol)){
+ var base=location.host+location.pathname.replace(/[^\/]*$/,''),feed='webcal://'+base+'reminders.ics';
+ if(/Android/i.test(navigator.userAgent)){
+  // Android has no app for webcal links, so subscribe through Google Calendar instead.
+  cal.href='https://calendar.google.com/calendar/r?cid='+encodeURIComponent(feed);cal.target='_blank';cal.rel='noopener';
+  cal.textContent='Add deadlines to Google Calendar';document.getElementById('lk-and').hidden=false;
+ } else cal.href=feed;
+ var cp=document.getElementById('lk-copy');
+ if(navigator.clipboard){cp.hidden=false;cp.onclick=function(){navigator.clipboard.writeText('https://'+base+'reminders.ics').then(function(){
+  cp.textContent='Link copied';setTimeout(function(){cp.textContent='Copy calendar link';},2500);});};}
+}
 var L=document.getElementById('lk-data');if(!L)return;var dl=JSON.parse(L.textContent),box=document.getElementById('lock');
 function tick(){var now=Date.now(),i=0;while(i<dl.length&&Date.parse(dl[i].at)<=now)i++;
  var left=document.getElementById('lk-left');
@@ -629,10 +820,12 @@ def render(data, plan):
 <p class="verdict">{verdict}</p><div class="tug">{_tug(res)}</div></section>
 <div class="plan"><div class="stack">
 <section class="panel"><h2>Streaming plan for the week</h2>{_stream(plan)}</section>
+<section class="panel"><h2>Set up next week</h2>{_nextweek(plan)}</section>
 <section class="panel"><h2>Other pickup options right now</h2>{_picks(plan)}</section>
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div>
 <section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day with the
 streaming plan in place, ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
+{_league(plan)}
 <section class="panel" style="margin-bottom:18px"><h2>What if…</h2>{_whatif(plan)}</section>
 {f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
 </div>
@@ -665,13 +858,19 @@ def summary(data, plan):
         lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")
     elif sc:
         lines.append("What-if couldn't run: " + " ".join(sc["errors"]))
+    nw = plan.get("nextweek") or {}
+    nw_lines = [f"{'TODAY ' if nw.get('today') else ''}{nw['day']}, for next week: add {m['add']}"
+                + (f", drop {m['drop']}" if m["drop"] else "")
+                + (f" after his game (from about {clock(m['free_from'])} UK)" if m.get("free_from") else "")
+                for m in nw.get("moves") or []]
     st = plan.get("stream") or {}
     if st.get("moves"):
         lines.append(f"Streaming plan: {round(st['before'] * 100)}% -> {round(st['after'] * 100)}% to win")
         for m in st["moves"]:
             drop = f", drop {m['drop']}" if m["drop"] else ""
             lines.append(f"{'TODAY ' if m['today'] else ''}{m['day']}: add {m['add']}{drop}")
-        return "\n".join(lines)
+        return "\n".join(lines + nw_lines)
+    lines += nw_lines
     if plan["picks"] and plan["picks"][0]["win_delta"] > 0:
         x = plan["picks"][0]
         drop = f", drop {x['drop']}" if x["drop"] else ""

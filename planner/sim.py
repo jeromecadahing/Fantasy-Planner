@@ -166,12 +166,14 @@ def build_plan(data, cfg):
 
     picks, pick_note = _pickups(data, cfg, me_players, w, days_left, opp_tot)
     stream = _stream_plan(data, cfg, me_players, w, days_left, opp_tot)
-    plan_es = sorted(stream.pop("entries", None) or my_es, key=lambda e: -e.prio)
+    stream_es = stream.pop("entries", None)
+    plan_es = sorted(stream_es or my_es, key=lambda e: -e.prio)
     lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots)
     from . import whatif
     return {"result": res, "weights": w, "lineup": lineup, "picks": picks, "pick_note": pick_note,
             "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data),
-            "whatif": whatif.grid(data, cfg, w, opp_tot), "scenario": whatif.scenario(data, cfg, w, opp_tot, res)}
+            "whatif": whatif.grid(data, cfg, w, opp_tot), "scenario": whatif.scenario(data, cfg, w, opp_tot, res),
+            "plan_entries": stream_es, "slots": slots}
 
 
 def _lineups(data, my_es, opp_es, days_left, slots):
