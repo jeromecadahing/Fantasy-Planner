@@ -13,6 +13,10 @@ on:
     # Pre-lock refresh for the day's injury reports, about 2 hours before the usual 7 pm Eastern tip-off
     # (about 9:45 pm UK). Delete this line if you only want the morning plan.
     - cron: "47 21 * * *"
+    # Roster check: about every hour from 9:30 am to 11:30 pm UK (winter). Each check is one small ESPN
+    # request, and the full plan is only rebuilt if you've added, dropped or moved someone to IR since the last update.
+    # If you change this line, also change "37 9-23 * * *" in the check and build jobs below to match.
+    - cron: "37 9-23 * * *"
   workflow_dispatch:        # lets you press "Run workflow" any time
     inputs:
       what_if:
@@ -27,10 +31,34 @@ permissions:
 
 concurrency:
   group: matchup-plan
-  cancel-in-progress: true
+  cancel-in-progress: false   # queue runs, so a roster check never cancels a full update halfway
 
 jobs:
+  check:
+    # Only the hourly roster check runs this; other runs go straight to the build.
+    if: github.event_name == 'schedule' && github.event.schedule == '37 9-23 * * *'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.roster.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: roster
+        run: python -m planner.check
+        env:
+          LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          SWID: ${{ secrets.SWID }}
+          YEAR: ${{ vars.YEAR }}
+          PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
   build:
+    needs: check
+    # Build on every run except an hourly check that found no roster change.
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '37 9-23 * * *' || needs.check.outputs.changed == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +76,7 @@ jobs:
           SWID: ${{ secrets.SWID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          TRIGGER: ${{ needs.check.outputs.changed == 'true' && 'roster-change' || '' }}
           YEAR: ${{ vars.YEAR }}
           ACTIVE_SLOTS: ${{ vars.ACTIVE_SLOTS }}
           ROSTER_SIZE: ${{ vars.ROSTER_SIZE }}
@@ -57,6 +86,7 @@ jobs:
           MATCHUP_END: ${{ vars.MATCHUP_END }}
           RESERVE_ADDS: ${{ vars.RESERVE_ADDS }}
           WHAT_IF: ${{ inputs.what_if || vars.WHAT_IF }}
+          NEXT_MATCHUP_END: ${{ vars.NEXT_MATCHUP_END }}
           WATCH_PLAYERS: ${{ vars.WATCH_PLAYERS || 'Jimmy Butler' }}
       - uses: actions/upload-pages-artifact@v3
         with:
