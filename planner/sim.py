@@ -383,6 +383,7 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
         act = max(data["today_index"], t - cfg.add_delay_days)  # day you make the move in ESPN
         moves.append({"day": data["days"][act]["label"], "today": act == data["today_index"],
                       "plays_from": data["days"][t]["label"] if act != t else None,
+                      "add_tip": (fa.get("tips") or [None] * len(data["days"]))[t] if act == t else None,
                       "add": fa["name"], "add_team": fa["team"], "add_status": fa["status"], "add_days": add_days,
                       "trend": fa.get("trend"), "drop": drop["name"] if drop else None, "drop_days_used": drop_days,
                       "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"])),

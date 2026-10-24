@@ -5,7 +5,10 @@ from zoneinfo import ZoneInfo
 from espn_api.basketball import League
 from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
 
+from . import cards
+
 ET = ZoneInfo("America/New_York")
+UTC = ZoneInfo("UTC")
 STAT_KEYS = {"fgm": "FGM", "fga": "FGA", "ftm": "FTM", "fta": "FTA", "tpm": "3PM",
              "reb": "REB", "ast": "AST", "stl": "STL", "blk": "BLK", "to": "TO"}
 TOTAL_KEYS = ["FGM", "FGA", "FTM", "FTA", "3PM", "PTS", "REB", "AST", "STL", "BLK", "TO"]
@@ -45,22 +48,50 @@ def _connect(cfg):
 
 
 def _game_dates(lg):
-    """Map scoring period -> ET date, and NBA team -> set of scoring periods with a game."""
-    sp_date, team_games = {}, {}
+    """Map scoring period -> ET date, and NBA team -> set of scoring periods with a game.
+
+    Also keeps each game's tip-off time (UTC ISO) and opponent, which the deadline reminder,
+    the per-game stats tab and the injury tab use.
+    """
+    sp_date, team_games, team_tips, team_opp = {}, {}, {}, {}
     for pro_id, games in (lg.pro_schedule or {}).items():
         abbrev = PRO_TEAM_MAP.get(int(pro_id))
         for sp, glist in games.items():
             if not glist:
                 continue
             sp = int(sp)
-            d = datetime.fromtimestamp(glist[0]["date"] / 1000, tz=ET).date()
+            g = glist[0]
+            tip = datetime.fromtimestamp(g["date"] / 1000, tz=ET)
+            d = tip.date()
             sp_date[sp] = min(sp_date.get(sp, d), d)
             team_games.setdefault(abbrev, set()).add(sp)
-    return sp_date, team_games
+            team_tips.setdefault(abbrev, {})[sp] = tip.astimezone(UTC).isoformat()
+            home = g.get("homeProTeamId") == int(pro_id)
+            other = g.get("awayProTeamId") if home else g.get("homeProTeamId")
+            if other is not None:
+                team_opp.setdefault(abbrev, {})[sp] = ("" if home else "@") + PRO_TEAM_MAP.get(int(other), "?")
+    return sp_date, team_games, team_tips, team_opp
 
 
-def _matchup_days(lg, cfg, sp_date):
+def _today_sp(lg, sp_date):
+    """ESPN's current scoring period, moved on to today's if ESPN hasn't rolled over yet.
+
+    The main run happens overnight (UK morning), after the last game has finished. ESPN sometimes
+    still reports yesterday as the current day at that point, which would make the plan count
+    games that are already over. Once it's past midnight Eastern, yesterday is finished.
+    """
     today_sp = lg.current_week
+    now = datetime.now(ET).date()
+    d = sp_date.get(today_sp)
+    if d is not None and d < now:
+        later = sorted(sp for sp, x in sp_date.items() if x >= now)
+        if later:
+            today_sp = later[0]
+    return today_sp
+
+
+def _matchup_days(lg, cfg, sp_date, day_tips):
+    today_sp = _today_sp(lg, sp_date)
     today = sp_date.get(today_sp) or datetime.now(ET).date()
     known = sorted(int(x) for x in lg.matchup_ids.get(lg.currentMatchupPeriod, []))
     start = sp_date.get(known[0], today) if known else today - timedelta(days=today.weekday())
@@ -73,7 +104,8 @@ def _matchup_days(lg, cfg, sp_date):
     sps = sorted({sp for sp, d in sp_date.items() if start <= d <= end} | {today_sp} | set(known))
     sps = [sp for sp in sps if sp in sp_date or sp == today_sp]
     days = [{"sp": sp, "date": (sp_date.get(sp) or today).isoformat(),
-             "label": (sp_date.get(sp) or today).strftime("%a %b %-d")} for sp in sps]
+             "label": (sp_date.get(sp) or today).strftime("%a %b %-d"),
+             "first_tip": day_tips.get(sp)} for sp in sps]
     today_index = next((i for i, d in enumerate(days) if d["sp"] >= today_sp), len(days))
     return days, today_index
 
@@ -141,7 +173,7 @@ def _trend(p, year):
     return None
 
 
-def _player(p, year, days, today_index, team_games, ir=False):
+def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
     stats, season_long = _blend(p, year)
     if stats is None:
         return None
@@ -158,7 +190,8 @@ def _player(p, year, days, today_index, team_games, ir=False):
     elig = [x for x in (getattr(p, "eligibleSlots", None) or []) if x and x not in NOT_ACTIVE]
     return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position, "elig": elig,
             "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
-            "trend": _trend(p, year)}
+            "trend": _trend(p, year),
+            "tips": [((team_tips or {}).get(p.proTeam) or {}).get(d["sp"]) for d in days]}
 
 
 def _with_stats(lg, players):
@@ -201,12 +234,17 @@ def _sofar(stats, roster):
     return tot, note
 
 
-def _lineup_slots(lg):
-    """Active lineup slots from the league settings, e.g. PG, SG, SF, PF, C, G, F, UT, UT, UT."""
+def _slot_counts(lg):
     try:
         raw = lg.espn_request.league_get(params={"view": "mSettings"})
-        counts = raw["settings"]["rosterSettings"]["lineupSlotCounts"]
+        return raw["settings"]["rosterSettings"]["lineupSlotCounts"]
     except Exception:
+        return None
+
+
+def _lineup_slots(counts):
+    """Active lineup slots from the league settings, e.g. PG, SG, SF, PF, C, G, F, UT, UT, UT."""
+    if not counts:
         return []
     out = []
     for sid, k in sorted(counts.items(), key=lambda x: int(x[0])):
@@ -258,17 +296,102 @@ def _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa):
     out = []
     players = _with_stats(lg, [p for p, _ in found])
     for p, (_, owner) in zip(players, found):
-        x = _player(p, lg.year, days, today_index, team_games)
+        x = _player(p, lg.year, days, today_index, team_games, team_tips=team_tips)
         if x:
             x["owner"] = owner
             out.append(x)
     return out
 
 
+def _my_cards(lg, cards_raw, players, sp_date, team_opp, today_sp):
+    """Attach averages and a recent game log to each of your players for the "My players" tab."""
+    for x in players:
+        e = cards_raw.get(x["id"])
+        if not e:
+            continue
+        parsed = cards.parse(e, lg.year)
+        x["card"] = {"avgs": parsed["avgs"],
+                     "log": cards.game_log(parsed, sp_date, team_opp.get(x["team"], {}), today_sp)}
+
+
+def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, today_sp):
+    """Injured players worth tracking: your watch list, injured free agents, and your own injured players."""
+    owners = {t.team_id: t.team_name for t in lg.teams}
+    wanted = {}  # id -> why we're tracking him
+    for p in me_team.roster:
+        if p.injuryStatus in cards.INJURED or p.lineupSlot == "IR":
+            wanted[p.playerId] = "mine"
+    for p in fa_pool:
+        if p.injuryStatus in cards.INJURED or getattr(p, "injured", False):
+            wanted.setdefault(p.playerId, "fa")
+    from .whatif import match
+    names = [k for k in (getattr(lg, "player_map", {}) or {}) if isinstance(k, str)]
+    missing = []
+    for q in cfg.watch_players:
+        hits = match(q, names)
+        if hits:
+            wanted[lg.player_map[names[hits[0]]]] = "watch"
+        else:
+            missing.append(q)
+    raw = cards.fetch(lg, list(wanted))
+    team_of = {}
+    for t in lg.teams:
+        for p in t.roster:
+            team_of[p.playerId] = p.proTeam
+    for p in fa_pool:
+        team_of[p.playerId] = p.proTeam
+
+    out = []
+    for pid, why in wanted.items():
+        e = raw.get(pid)
+        if not e:
+            continue
+        pl = e.get("player") or {}
+        parsed = cards.parse(e, lg.year)
+        basis, source = cards.best_basis(parsed)
+        team = team_of.get(pid) or PRO_TEAM_MAP.get(pl.get("proTeamId"), "")
+        status = cards.STATUS_LABEL.get(parsed["injury"], "Healthy" if not parsed["injured"] else "Injured")
+        if why == "fa" and status == "Healthy":
+            continue
+        on = parsed["on_team"]
+        if why == "mine" or on == cfg.team_id:
+            owner = "Your team"
+        elif on and on in owners:
+            owner = owners[on]
+        else:
+            owner = "On waivers" if parsed["status"] == "WAIVERS" else "Free agent"
+        ret = parsed["ret"]
+        start = ret or datetime.now(ET).date().isoformat()
+        x = {"id": pid, "name": pl.get("fullName") or lg.player_map.get(pid, str(pid)), "team": team,
+             "status": status, "owner": owner, "watch": why == "watch", "mine": owner == "Your team",
+             "ret": ret, "own": parsed["own"], "own_change": parsed["own_change"],
+             "line": basis, "source": source, "s": cards.as_sim_line(basis) if basis else None,
+             "games_left": cards.games_after(team_games, sp_date, team, start), "news": []}
+        out.append(x)
+
+    # Keep injured free agents only if, healthy, they'd be at least as good as your weakest starter.
+    from .sim import EQUAL, value
+    from .whatif import season_value
+    mine = sorted((season_value(p) for p in me_players if not p["ir"]), reverse=True)
+    bar = mine[min(len(mine), max(cfg.active_slots, 1)) - 1] if mine else 0
+    fas = sorted((x for x in out if not x["mine"] and not x["watch"] and x["s"]),
+                 key=lambda x: -value(x["s"], EQUAL))
+    keep_fa = {id(x) for x in [f for f in fas if value(f["s"], EQUAL) >= bar * 0.9][:8]}
+    out = [x for x in out if x["mine"] or x["watch"] or id(x) in keep_fa]
+    for x in out:
+        x["news"] = cards.news(lg, x["id"])
+    return out, missing
+
+
 def load(cfg):
     lg = _connect(cfg)
-    sp_date, team_games = _game_dates(lg)
-    days, today_index = _matchup_days(lg, cfg, sp_date)
+    sp_date, team_games, team_tips, team_opp = _game_dates(lg)
+    day_tips = {}
+    for tips in team_tips.values():
+        for sp, iso in tips.items():
+            day_tips[sp] = min(day_tips.get(sp, iso), iso)
+    days, today_index = _matchup_days(lg, cfg, sp_date, day_tips)
+    today_sp = _today_sp(lg, sp_date)
 
     box = next((b for b in lg.box_scores() if cfg.team_id in
                 (getattr(b.home_team, "team_id", b.home_team), getattr(b.away_team, "team_id", b.away_team))), None)
@@ -282,8 +405,8 @@ def load(cfg):
 
     def side(team, stats):
         roster = _with_stats(lg, list(team.roster))
-        players = [x for x in (_player(p, lg.year, days, today_index, team_games, ir=(p.lineupSlot == "IR"))
-                               for p in roster) if x]
+        players = [x for x in (_player(p, lg.year, days, today_index, team_games, ir=(p.lineupSlot == "IR"),
+                                       team_tips=team_tips) for p in roster) if x]
         sofar, note = _sofar(stats, [p for p in players if not p["ir"]])
         return {"name": team.team_name, "sofar": sofar, "players": players}, note
 
@@ -291,13 +414,26 @@ def load(cfg):
     opp, _ = side(opp_team, opp_stats)
 
     fa_raw = _with_stats(lg, lg.free_agents(size=cfg.fa_pool))
-    fa = [x for x in (_player(p, lg.year, days, today_index, team_games) for p in fa_raw) if x]
+    fa = [x for x in (_player(p, lg.year, days, today_index, team_games, team_tips=team_tips) for p in fa_raw) if x]
 
     extra = _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa)
 
+    # My players tab: game logs and splits from one batch of player cards.
+    _my_cards(lg, cards.fetch(lg, [x["id"] for x in me["players"]]), me["players"], sp_date, team_opp, today_sp)
+
+    # Injury watch tab: a deeper free-agent pool, so injured stars further down the list are found too.
+    try:
+        deep = lg.free_agents(size=max(cfg.fa_pool, 150))
+    except Exception:
+        deep = fa_raw
+    watch, missing = _injury_watch(lg, cfg, me_team, me["players"], deep, sp_date, team_games, today_sp)
+
+    counts = _slot_counts(lg) or {}
     return {
         "league": {"name": lg.settings.name, "week": lg.currentMatchupPeriod},
         "days": days, "today_index": today_index,
-        "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(lg),
+        "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(counts),
+        "ir_slots": int(counts.get("13", 0) or 0), "ir_used": sum(1 for p in me_team.roster if p.lineupSlot == "IR"),
+        "injury_watch": watch, "watch_missing": missing,
         "me": me, "opp": opp, "fa": fa, "extra": extra,
     }

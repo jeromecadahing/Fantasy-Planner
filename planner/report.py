@@ -1,5 +1,5 @@
 """Render the plan as a static web page and a short text summary."""
-from datetime import datetime
+from datetime import date, datetime
 import json
 from html import escape
 from zoneinfo import ZoneInfo
@@ -86,6 +86,62 @@ border:1px solid var(--rule);border-radius:8px;padding:9px 10px;width:100%;min-w
 .scn p{margin:4px 0 0;font-size:.93rem}.scn .err{color:var(--bad)}
 .warn{margin:10px 0 0;padding:8px 10px;border-left:3px solid var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent);border-radius:4px;font-size:.93rem}
 code{font-size:.88em;background:var(--field);padding:1px 5px;border-radius:4px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--rule);margin:0 0 18px;overflow-x:auto;scrollbar-width:none}
+.tabs button{font:600 1.1rem/1 "Barlow Condensed","Arial Narrow",sans-serif;color:var(--muted);background:none;border:0;
+border-bottom:3px solid transparent;padding:10px 12px 9px;cursor:pointer;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--you)}
+.tabs button:focus-visible{outline:2px solid var(--you);outline-offset:-2px;border-radius:4px}
+.tabs .n{font:600 .78rem/1 Barlow,sans-serif;background:var(--opp-soft);color:var(--ink);border-radius:999px;padding:2px 6px;margin-left:5px;vertical-align:2px}
+.lock{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center;background:var(--surface);
+border:1px solid var(--rule);border-left:5px solid var(--you);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.lock.soon{border-left-color:var(--opp)}.lock.past{border-left-color:var(--rule)}
+.lk-time{font:700 clamp(2rem,7vw,2.8rem)/.95 "Barlow Condensed","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}
+.lk-left{font:600 1.05rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;color:var(--you)}.lock.soon .lk-left{color:var(--opp)}
+.lk-body p{margin:0 0 4px}.lk-body .dc{margin:0}
+.lk-todo{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.lk-todo span{font:600 .92rem/1 Barlow,sans-serif;padding:5px 8px;border-radius:6px;background:var(--you-soft)}
+.lk-next{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px;border-top:1px solid var(--rule);padding-top:8px;font-size:.88rem;color:var(--muted)}
+.lk-next b{color:var(--ink);font-weight:600}
+.lk-next a{color:var(--you);font-weight:600;margin-left:auto}
+@media (max-width:560px){.lock{grid-template-columns:1fr}.lk-next a{margin-left:0}
+.tabs{gap:0}.tabs button{font-size:1rem;padding:10px 8px 9px}}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:0 0 12px}
+.seg button{font:600 .92rem/1 Barlow,sans-serif;background:var(--field);color:var(--muted);border:0;padding:8px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--you);color:var(--on-you)}
+.seg button:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+table.st{font-size:.92rem;min-width:640px}
+table.st th{font:700 .95rem/1 "Barlow Condensed","Arial Narrow",sans-serif;text-align:right;padding:6px 6px 8px;color:var(--muted);white-space:nowrap}
+table.st td{text-align:right;font-variant-numeric:tabular-nums;padding:7px 6px;color:var(--ink);white-space:nowrap}
+table.st th:first-child,table.st td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+table.st td:first-child{font-weight:600}table.st td:first-child small{display:block;font-weight:400;color:var(--muted);font-size:.8rem}
+table.st td.hi{color:var(--good);font-weight:600}table.st td.lo{color:var(--bad)}
+table.st tr.ir td{color:var(--muted)}
+.logs{display:grid;gap:8px;margin-top:6px}
+.logs details{border:1px solid var(--rule);border-radius:10px;padding:8px 12px;min-width:0}
+.logs summary{cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.logs summary span{font-weight:400;color:var(--muted);font-size:.9rem}
+.logs details[open] summary{margin-bottom:6px}
+.inj{display:grid;gap:12px}
+.ic{border:1px solid var(--rule);border-radius:12px;padding:12px 14px}
+.ic.t-pos{border-left:4px solid var(--good)}.ic.t-warn{border-left:4px solid var(--warn)}.ic.t-you{border-left:4px solid var(--you)}
+.ih{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ih strong{font:700 1.3rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}
+.vd{font:700 1.05rem/1 "Barlow Condensed","Arial Narrow",sans-serif;padding:5px 9px;border-radius:6px;background:var(--field);color:var(--muted)}
+.vd.t-pos{background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good)}
+.vd.t-warn{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--warn)}
+.vd.t-you{background:var(--you-soft);color:var(--you)}
+.facts{display:flex;flex-wrap:wrap;gap:4px 16px;margin:6px 0 8px;font-size:.9rem;color:var(--muted)}
+.facts b{color:var(--ink);font-weight:600}
+.ic ul{margin:0 0 6px;padding-left:1.1rem;display:grid;gap:4px;font-size:.95rem}
+.line{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px}
+.line span{font:600 .88rem/1 "Barlow Condensed","Arial Narrow",sans-serif;padding:4px 7px;border-radius:5px;background:var(--field);font-variant-numeric:tabular-nums}
+.news{border-top:1px solid var(--rule);margin-top:6px;padding-top:6px;font-size:.9rem}
+.news p{margin:2px 0 6px}.news .dc{display:block}
+.order{margin:0 0 14px;padding-left:1.4rem;display:grid;gap:6px}
+.order li::marker{font:700 1.05rem "Barlow Condensed","Arial Narrow",sans-serif;color:var(--you)}
+[hidden]{display:none!important}
 @media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
 @media (max-width:520px){.row{grid-template-columns:3.1rem 1fr 2.6rem 1fr 3.1rem;gap:5px}}
@@ -334,6 +390,211 @@ def _whatif(plan):
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
 
 
+# ---------- Deadline banner ----------
+
+def _lock(plan):
+    dl = plan.get("deadlines") or []
+    if not dl:
+        return ('<section class="lock past"><div class="lk-time">No games</div><div class="lk-body"><p>No games left for your '
+                "players in this matchup. The next run picks up the new week once ESPN rolls it over.</p></div></section>")
+    first = dl[0]
+    todo = "".join(f"<span>{escape(m)}</span>" for m in first["moves"])
+    def _next(d):
+        n = len(d["moves"])
+        moves = f", {n} move{'s' if n != 1 else ''}" if n else ""
+        return (f'<span>{escape(d["label"].split()[0])}’s games lock <b>{escape(d["lock_txt"].split(" UK")[0])}</b>'
+                f'{moves}</span>')
+
+    nxt = "".join(_next(d) for d in dl[1:5]).replace("<span>", "<span>Next: ", 1)
+    blob = json.dumps([{"at": d["lock"], "label": d["label"], "txt": d["lock_txt"], "why": d["why"], "moves": d["moves"]}
+                       for d in dl], separators=(",", ":")).replace("</", "<\\/")
+    return (f'<section class="lock" id="lock" aria-live="polite"><div><div class="lk-time" id="lk-time">'
+            f'{escape(first["lock_txt"].split(" UK")[0])}</div><div class="lk-left" id="lk-left"></div></div>'
+            f'<div class="lk-body"><p id="lk-head"><strong>{"Today’s" if first["today"] else escape(first["label"]) + "’s"} roster window '
+            f'closes at {escape(first["lock_txt"])}.</strong></p><p class="dc" id="lk-why">{escape(first["why"])}, and his lineup spot '
+            f'locks. Make any pickup and set your lineup before then.</p>'
+            f'<div class="lk-todo" id="lk-todo">{todo}</div>'
+            f'{"" if todo else "<p class=dc id=lk-none>No pickups planned for this day. Just check your lineup and late scratches.</p>"}</div>'
+            f'<div class="lk-next">{nxt}<a id="lk-cal" href="reminders.ics">Add deadlines to your calendar</a></div>'
+            f'<script type="application/json" id="lk-data">{blob}</script></section>')
+
+
+# ---------- My players ----------
+
+AVG_COLS = [("GP", "GP"), ("MIN", "MIN"), ("PTS", "PTS"), ("REB", "REB"), ("AST", "AST"), ("STL", "STL"),
+            ("BLK", "BLK"), ("3PM", "3PM"), ("TO", "TO")]
+SPLIT_ORDER = ["Season", "Last 15", "Last 7", "Last season"]
+
+
+def _num(v, d=1):
+    return "–" if v is None else f"{v:.{d}f}"
+
+
+def _pctx(m, a):
+    return "–" if not a else f"{m / a:.3f}".lstrip("0")
+
+
+def _cmp_cls(v, base, key):
+    if v is None or not base or base.get(key) is None:
+        return ""
+    b = base[key]
+    if key == "TO":
+        return " class=lo" if v >= b + 1.5 else " class=hi" if b >= 1.5 and v <= b - 1.5 else ""
+    if key in ("GP", "MIN"):
+        return ""
+    gap = max(b * 0.3, 1.5 if key in ("PTS", "REB", "AST") else 1)
+    return " class=hi" if v >= b + gap else " class=lo" if v <= b - gap else ""
+
+
+def _players_tab(data):
+    players = data["me"]["players"]
+    if not any(p.get("card") for p in players):
+        return ('<p class="empty">ESPN didn’t send per-game stats on this run. They’re pulled from player cards, '
+                "which ESPN sometimes leaves out; the next run will try again.</p>")
+    days = data["days"]
+    ti = data["today_index"]
+    tables = []
+    for k, split in enumerate(SPLIT_ORDER):
+        rows = ""
+        for p in sorted(players, key=lambda p: (p["ir"], -((p.get("card") or {}).get("avgs", {}).get("Season", {}).get("PTS", 0)))):
+            a = (p.get("card") or {}).get("avgs", {}).get(split)
+            left = [days[d]["label"].split()[0] for d in range(ti, len(days)) if p["games"][d]]
+            tag = f'{escape(p["team"])}, {escape(p["status"])}' if p["status"] != "Healthy" else escape(p["team"])
+            if p["ir"]:
+                tag += ", IR"
+            base = (p.get("card") or {}).get("avgs", {}).get("Season") if split in ("Last 15", "Last 7") else None
+            if not a:
+                rows += (f'<tr{" class=ir" if p["ir"] else ""}><td>{escape(p["name"])}<small>{tag}</small></td>'
+                         f'<td colspan="11" style="text-align:left;color:var(--muted)">No games in this span</td>'
+                         f'<td>{len(left)}</td></tr>')
+                continue
+            cells = "".join(f'<td{_cmp_cls(a.get(c), base, c)}>{_num(a.get(c), 0 if c == "GP" else 1)}</td>' for c, _ in AVG_COLS)
+            rows += (f'<tr{" class=ir" if p["ir"] else ""}><td>{escape(p["name"])}<small>{tag}</small></td>{cells}'
+                     f'<td>{_pctx(a.get("FGM", 0), a.get("FGA", 0))}</td><td>{_pctx(a.get("FTM", 0), a.get("FTA", 0))}</td>'
+                     f'<td title="{escape(", ".join(left))}">{len(left)}</td></tr>')
+        head = "".join(f"<th>{l}</th>" for _, l in AVG_COLS)
+        tables.append(f'<div class="scroll" data-split="{k}"{"" if k == 0 else " hidden"}><table class="st"><thead><tr>'
+                      f'<th>Player</th>{head}<th>FG%</th><th>FT%</th><th title="Games left this matchup">Left</th></tr></thead>'
+                      f'<tbody>{rows}</tbody></table></div>')
+    seg = "".join(f'<button type="button" data-k="{k}" aria-pressed="{"true" if k == 0 else "false"}">{s_}</button>'
+                  for k, s_ in enumerate(SPLIT_ORDER))
+
+    logs = ""
+    for p in players:
+        log = (p.get("card") or {}).get("log") or []
+        if not log:
+            continue
+        base = (p.get("card") or {}).get("avgs", {}).get("Season")
+        rows = ""
+        for g in log:
+            cells = "".join(f'<td{_cmp_cls(g.get(c), base, c)}>{_num(g.get(c), 0)}</td>'
+                            for c in ("MIN", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TO"))
+            rows += (f'<tr><td>{escape(g["date"])} <small style="display:inline;color:var(--muted)">{escape(g["opp"])}</small></td>{cells}'
+                     f'<td>{int(g.get("FGM", 0))}-{int(g.get("FGA", 0))}</td><td>{int(g.get("FTM", 0))}-{int(g.get("FTA", 0))}</td></tr>')
+        last = log[0]
+        logs += (f'<details><summary>{escape(p["name"])}<span>Last game {escape(last["date"])}: {_num(last.get("PTS"), 0)} pts, '
+                 f'{_num(last.get("REB"), 0)} reb, {_num(last.get("AST"), 0)} ast</span></summary><div class="scroll"><table class="st">'
+                 f'<thead><tr><th>Game</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>3PM</th>'
+                 f'<th>TO</th><th>FG</th><th>FT</th></tr></thead><tbody>{rows}</tbody></table></div></details>')
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>Per-game averages</h2>'
+            f'<p class="hint">Green and red on the Last 15 and Last 7 views mark stats well above or below his season average. '
+            f'“Left” is games remaining in this matchup.</p><div class="seg" id="split-seg">{seg}</div>{"".join(tables)}</section>'
+            f'<section class="panel"><h2>Game logs</h2><p class="hint">His last 10 games, newest first. Green and red compare each game '
+            f'with his season average.</p><div class="logs">{logs or "<p class=empty>No games played yet this season.</p>"}</div></section>')
+
+
+# ---------- Injury watch ----------
+
+def _line_chips(x):
+    a = x.get("line")
+    if not a:
+        return ""
+    chips = [f'{_num(a.get(k))} {k.lower() if k not in ("3PM", "TO") else k}' for k in ("PTS", "REB", "AST", "STL", "BLK", "3PM", "TO")]
+    chips += [f'{_pctx(a.get("FGM", 0), a.get("FGA", 0))} FG', f'{_pctx(a.get("FTM", 0), a.get("FTA", 0))} FT']
+    return (f'<p class="dc" style="margin:0">Per game, {escape(x["source"] or "")}:</p>'
+            f'<div class="line">{"".join(f"<span>{escape(c)}</span>" for c in chips)}</div>')
+
+
+def _nice_date(iso):
+    try:
+        return date.fromisoformat(iso[:10]).strftime("%a %b %-d")
+    except (TypeError, ValueError):
+        return iso or ""
+
+
+def _injury_tab(data):
+    watch = data.get("injury_watch") or []
+    help_ = ('<p class="hint" style="margin-top:14px">To track a specific player, like Jimmy Butler, add his name to the '
+             '<code>WATCH_PLAYERS</code> variable in GitHub (<strong>Settings → Secrets and variables → Actions → Variables</strong>). '
+             'Separate several names with commas. Injured free agents who’d be good enough to start for you are added automatically.</p>')
+    miss = "".join(f'<p class="warn">Couldn’t find “{escape(m)}” in ESPN’s player list. Check the spelling in WATCH_PLAYERS.</p>'
+                   for m in data.get("watch_missing") or [])
+    if not watch:
+        return miss + '<p class="empty">No injured players to track right now: none of your players are hurt and no injured free agent would crack your lineup.</p>' + help_
+    grab = [x for x in watch if x["bucket"] <= 2 and x["owner"] in ("Free agent", "On waivers")]
+    order = ""
+    if grab:
+        order = ('<h2>Who to grab first</h2><p class="hint">Ranked by how soon you need to act, then by how good he is. '
+                 'Players marked “Add now” are the ones to get ahead of everybody else on.</p><ol class="order">'
+                 + "".join(f'<li><strong>{escape(x["name"])}</strong>: {escape(x["verdict"])}'
+                           + (f" (your #{x['rank']} player when healthy)" if x.get("rank") else "") + "</li>"
+                           for x in grab) + "</ol>")
+    cards_ = ""
+    for x in watch:
+        facts = [f'<span>Status <b>{escape(x["status"])}</b></span>', f'<span><b>{escape(x["owner"])}</b></span>']
+        if x.get("ret"):
+            d = x["days_out"]
+            when = "today" if d == 0 else f"in {d} days" if d and d > 0 else "date passed, check news"
+            ret_txt = date.fromisoformat(x["ret"]).strftime("%a %b %-d")
+            facts.append(f'<span>ESPN return estimate <b>{ret_txt}</b> ({when})</span>')
+        else:
+            facts.append("<span>Return date <b>none from ESPN</b></span>")
+        if x.get("games_left") is not None:
+            facts.append(f'<span>NBA games left{" after return" if x.get("ret") else ""} <b>{x["games_left"]}</b></span>')
+        if x.get("own") is not None:
+            ch = x.get("own_change")
+            facts.append(f'<span>Rostered <b>{x["own"]:.0f}%</b>'
+                         + (f' ({"+" if ch > 0 else ""}{ch:.1f})' if ch else "") + "</span>")
+        news = "".join(f'<p><span class="dc">{escape(_nice_date(n["published"]))}</span><strong>{escape(n["headline"])}</strong>'
+                       f'{(" " + escape(n["story"])) if n["story"] and n["story"] != n["headline"] else ""}</p>'
+                       for n in (x.get("news") or [])[:2])
+        cls = {"pos": " t-pos", "warn": " t-warn", "you": " t-you"}.get(x["tone"], "")
+        cards_ += (f'<article class="ic{cls}"><div class="ih"><strong>{escape(x["name"])} <span class="dc">{escape(x["team"])}'
+                   f'{", watch list" if x["watch"] else ""}</span></strong><span class="vd{cls}">{escape(x["verdict"])}</span></div>'
+                   f'<div class="facts">{"".join(facts)}</div>{_line_chips(x)}'
+                   f'<ul>{"".join(f"<li>{escape(w)}</li>" for w in x["why"])}</ul>'
+                   f'{f"<div class=news>{news}</div>" if news else ""}</article>')
+    return (miss + f'<section class="panel" style="margin-bottom:18px">{order}<h2>Injured players</h2>'
+            f'<p class="hint">Return dates are ESPN’s estimates and often move. Ownership change is ESPN’s recent trend; '
+            f'a jump usually means a return is close.</p><div class="inj">{cards_}</div>{help_}</section>')
+
+
+PAGE_JS = r"""(function(){
+var tabs=[].slice.call(document.querySelectorAll('.tabs button')),ids=tabs.map(function(b){return b.dataset.tab;});
+function go(id,push){if(ids.indexOf(id)<0)id=ids[0];tabs.forEach(function(b){var on=b.dataset.tab===id;b.setAttribute('aria-selected',on);b.tabIndex=on?0:-1;
+ document.getElementById('tab-'+b.dataset.tab).hidden=!on;});if(push){try{history.replaceState(null,'','#'+id);}catch(e){}}}
+tabs.forEach(function(b,i){b.onclick=function(){go(b.dataset.tab,true);};b.onkeydown=function(e){var k=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;
+ if(k){var n=tabs[(i+k+tabs.length)%tabs.length];n.focus();go(n.dataset.tab,true);}};});
+go((location.hash||'').slice(1),false);window.addEventListener('hashchange',function(){go(location.hash.slice(1),false);});
+var seg=document.getElementById('split-seg');if(seg){seg.onclick=function(e){var b=e.target.closest('button');if(!b)return;
+ [].forEach.call(seg.children,function(x){x.setAttribute('aria-pressed',x===b);});
+ [].forEach.call(document.querySelectorAll('[data-split]'),function(t){t.hidden=t.dataset.split!==b.dataset.k;});};}
+var cal=document.getElementById('lk-cal');if(cal&&/^https?:$/.test(location.protocol)){var base=location.host+location.pathname.replace(/[^\/]*$/,'');cal.href='webcal://'+base+'reminders.ics';}
+var L=document.getElementById('lk-data');if(!L)return;var dl=JSON.parse(L.textContent),box=document.getElementById('lock');
+function tick(){var now=Date.now(),i=0;while(i<dl.length&&Date.parse(dl[i].at)<=now)i++;
+ var left=document.getElementById('lk-left');
+ if(i>=dl.length){box.className='lock past';left.textContent='Last deadline of this matchup has passed';return;}
+ var d=dl[i],ms=Date.parse(d.at)-now,h=Math.floor(ms/36e5),m=Math.floor(ms%36e5/6e4);
+ left.textContent='closes in '+(h?h+' h ':'')+m+' min';box.className='lock'+(ms<36e5*2?' soon':'');
+ if(i>0&&!box.dataset.moved){box.dataset.moved=1;document.getElementById('lk-time').textContent=d.txt.split(' UK')[0];
+  document.getElementById('lk-head').innerHTML='<strong>'+d.label+'\u2019s roster window closes at '+d.txt+'.</strong>';
+  document.getElementById('lk-why').textContent=d.why+', and his lineup spot locks. Make any pickup and set your lineup before then.';
+  var t=document.getElementById('lk-todo');t.innerHTML='';d.moves.forEach(function(x){var s=document.createElement('span');s.textContent=x;t.appendChild(s);});
+  var n=document.getElementById('lk-none');if(n)n.hidden=d.moves.length>0;}}
+tick();setInterval(tick,30000);
+})();"""
+
+
 def render(data, plan):
     res = plan["result"]
     me, opp = data["me"]["name"], data["opp"]["name"]
@@ -344,6 +605,7 @@ def render(data, plan):
     now = f'{et.strftime("%a %b %-d, %-I:%M %p")} ET ({uk.strftime("%-I:%M %p")} UK)'
     trends = "".join(f"<tr><td>{escape(a)}</td><td>{escape(b)}</td><td>{escape(c)}</td></tr>" for a, b, c in plan["trends"])
     notes = "".join(f"<li>{escape(n)}</li>" for n in plan["notes"])
+    n_act = sum(1 for x in data.get("injury_watch") or [] if x.get("bucket") == 0)
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Matchup plan: {escape(me)} vs {escape(opp)}</title>
@@ -353,6 +615,13 @@ def render(data, plan):
 <style>{CSS}</style></head><body><div class="wrap">
 <h1>Matchup plan</h1>
 <p class="sub">{escape(data["league"]["name"])}, week {data["league"]["week"]}. Updated {now}.</p>
+{_lock(plan)}
+<nav class="tabs" role="tablist" aria-label="Sections">
+<button type="button" role="tab" data-tab="plan" aria-controls="tab-plan">Matchup plan</button>
+<button type="button" role="tab" data-tab="players" aria-controls="tab-players">My players</button>
+<button type="button" role="tab" data-tab="injuries" aria-controls="tab-injuries">Injury watch{f'<span class="n">{n_act}</span>' if n_act else ""}</button>
+</nav>
+<div id="tab-plan" role="tabpanel" aria-label="Matchup plan">
 <section class="board"><div class="score">
 <div class="side you"><span class="team">{escape(me)}</span><span class="big">{res["cats"]:.1f}</span></div>
 <div class="mid">categories<br>won</div>
@@ -366,9 +635,14 @@ def render(data, plan):
 streaming plan in place, ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
 <section class="panel" style="margin-bottom:18px"><h2>What if…</h2>{_whatif(plan)}</section>
 {f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
+</div>
+<div id="tab-players" role="tabpanel" aria-label="My players" hidden>{_players_tab(data)}</div>
+<div id="tab-injuries" role="tabpanel" aria-label="Injury watch" hidden>{_injury_tab(data)}</div>
 <p class="foot">Each remaining game is simulated thousands of times from recent per-game averages, with
 injury status setting each player’s chance to play. Lineups follow your league’s position slots, so a player
-only starts in a spot ESPN would let him fill. Always check ESPN for late scratches before games lock.</p>
+only starts in a spot ESPN would let him fill. The plan rebuilds each morning UK time, after the night’s games are final.
+Always check ESPN for late scratches before games lock.</p>
+<script>{PAGE_JS}</script>
 </div></body></html>"""
 
 
@@ -379,6 +653,13 @@ def summary(data, plan):
     swing = [CATS[i][0] for i in range(9) if 0.2 <= res["catP"][i] < 0.8]
     if swing:
         lines.append("Swing: " + ", ".join(swing))
+    dl = plan.get("deadlines") or []
+    if dl:
+        lines.append(f"{'Today' if dl[0]['today'] else dl[0]['label']}: make moves before {dl[0]['lock_txt']}, "
+                     f"when {dl[0]['why'].replace(' tips off', '')} tips off.")
+    for x in data.get("injury_watch") or []:
+        if x.get("bucket") == 0 and not x.get("mine"):
+            lines.append(f"Injury watch: {x['verdict']}: {x['name']}.")
     sc = plan.get("scenario")
     if sc and sc.get("ok"):
         lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")

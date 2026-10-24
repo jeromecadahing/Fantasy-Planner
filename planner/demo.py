@@ -1,5 +1,8 @@
 """Fictional demo matchup, used with --demo to test without an ESPN league."""
-from datetime import date, timedelta
+import random
+from datetime import date, datetime, timedelta, timezone
+
+from .cards import LINE
 
 SK = ["fgm", "fga", "ftm", "fta", "tpm", "reb", "ast", "stl", "blk", "to"]
 SCHED = {"A": [1, 0, 1, 0, 1, 0, 1], "B": [0, 1, 0, 1, 0, 1, 0], "C": [1, 1, 0, 1, 0, 1, 0],
@@ -22,8 +25,72 @@ POS = {"Marcus Vale": "PG", "Dorian Pike": "GF", "Theo Amari": "C", "Jalen Cross
 def _p(name, sched, stats, status="Healthy", prob=1.0, ir=False, trend=None):
     pos = POS.get(name, "G")
     return {"name": name, "team": "DEMO", "pos": pos, "elig": ELIG[pos], "status": status, "ir": ir, "trend": trend,
-            "games": [bool(g) for g in SCHED[sched]], "prob": [prob] * 7,
+            "games": [bool(g) for g in SCHED[sched]], "prob": [prob] * 7, "sched": sched,
             "s": dict(zip(SK, stats))}
+
+
+# Tip-off hour in UTC for each demo team: 23 is 7 pm Eastern, 2 is 10 pm Eastern (next UTC day).
+TIP = {"A": 0, "B": 0.5, "C": 1, "D": 2, "E": 23.5, "F": 3}
+
+
+def _tips(sched, day0, today):
+    out = []
+    for i, g in enumerate(SCHED[sched]):
+        if not g:
+            out.append(None)
+            continue
+        base = datetime(day0.year, day0.month, day0.day, tzinfo=timezone.utc) + timedelta(days=i)
+        h = TIP[sched]
+        base += timedelta(hours=h if h >= 12 else 24 + h)
+        out.append(base.isoformat())
+    return out
+
+
+def _card(p, rng, days_back=10):
+    """Fictional averages and a game log built around the player's stat line."""
+    s = p["s"]
+    season = {"GP": 18, "MIN": 22 + s["fga"], "PTS": 2 * s["fgm"] + s["tpm"] + s["ftm"], "REB": s["reb"], "AST": s["ast"],
+              "STL": s["stl"], "BLK": s["blk"], "3PM": s["tpm"], "TO": s["to"], "FGM": s["fgm"], "FGA": s["fga"],
+              "FTM": s["ftm"], "FTA": s["fta"]}
+
+    def jitter(k, f):
+        return {key: (v if key == "GP" else round(v * f * rng.uniform(0.85, 1.15), 1)) for key, v in season.items()} | {"GP": k}
+
+    log = []
+    for i in range(days_back):
+        g = {k: max(0, round(season.get(k, 0) * rng.uniform(0.4, 1.6))) for k in LINE}
+        g["FGM"], g["FTM"] = min(g["FGM"], g["FGA"]), min(g["FTM"], g["FTA"])
+        g["PTS"] = 2 * g["FGM"] + g["3PM"] + g["FTM"]
+        d = date.today() - timedelta(days=2 * i + 1)
+        log.append({"date": d.strftime("%a %b %-d"), "opp": rng.choice(["BOS", "@MIA", "NYK", "@LAL", "DEN", "@PHX"]), **g})
+    return {"avgs": {"Season": season, "Last 15": jitter(7, 1.05), "Last 7": jitter(3, rng.choice([0.8, 1.2])),
+                     "Last season": jitter(70, 0.95)}, "log": log}
+
+
+def _injured():
+    today = date.today()
+    star = {"PTS": 24.1, "REB": 6.0, "AST": 5.2, "STL": 1.5, "BLK": 0.4, "3PM": 1.1, "TO": 2.1,
+            "FGM": 8.2, "FGA": 16.4, "FTM": 6.6, "FTA": 7.8, "GP": 62}
+    mid = {"PTS": 15.3, "REB": 8.8, "AST": 2.1, "STL": 0.9, "BLK": 1.4, "3PM": 0.6, "TO": 1.4,
+           "FGM": 6.0, "FGA": 11.0, "FTM": 2.7, "FTA": 3.6, "GP": 55}
+    guard = {"PTS": 17.0, "REB": 3.2, "AST": 6.4, "STL": 1.2, "BLK": 0.2, "3PM": 2.3, "TO": 2.4,
+             "FGM": 6.1, "FGA": 13.9, "FTM": 2.5, "FTA": 2.9, "GP": 40}
+    from .cards import as_sim_line
+
+    def w(name, team, status, owner, ret, line, src, own, ch, news, watch=False):
+        return {"id": hash(name), "name": name, "team": team, "status": status, "owner": owner, "watch": watch,
+                "mine": owner == "Your team", "ret": ret, "own": own, "own_change": ch, "line": line, "source": src,
+                "s": as_sim_line(line), "games_left": 55, "news": news}
+    return [
+        w("Silas Brandt", "DEMO", "Out", "Free agent", (today + timedelta(days=40)).isoformat(), star, "last season", 31.0, 0.4,
+          [{"published": today.isoformat(), "headline": "Brandt ramps up on-court work",
+            "story": "Brandt has started shooting drills but remains without a firm timeline for contact work."}], watch=True),
+        w("Tomas Reyes", "DEMO", "Day-to-day", "Free agent", None, guard, "this season", 44.0, 6.2,
+          [{"published": today.isoformat(), "headline": "Reyes upgraded to day-to-day", "story": ""}]),
+        w("Noah Whitfield", "DEMO", "Out", "On waivers", (today + timedelta(days=9)).isoformat(), mid, "last season", 22.0, 1.0, []),
+        w("Devin Royce", "DEMO", "Out", "Your team", (today + timedelta(days=12)).isoformat(),
+          {**star, "PTS": 20.0}, "this season", 88.0, -2.0, []),
+    ]
 
 
 def load():
@@ -31,6 +98,25 @@ def load():
     days = [{"date": (monday + timedelta(days=i)).isoformat(),
              "label": (monday + timedelta(days=i)).strftime("%a %b %-d")} for i in range(7)]
     zero = [0.0] * 11
+    data = _load(days, zero)
+    rng = random.Random(7)
+    for team in ("me", "opp"):
+        for p in data[team]["players"]:
+            p["tips"] = _tips(p["sched"], monday, date.today())
+    for p in data["fa"]:
+        p["tips"] = _tips(p["sched"], monday, date.today())
+    for p in data["me"]["players"]:
+        p["card"] = _card(p, rng)
+    for i, d in enumerate(days):
+        tips = [p["tips"][i] for p in data["me"]["players"] + data["opp"]["players"] if p["tips"][i]]
+        d["first_tip"] = min(tips) if tips else None
+    data["today_index"] = min(date.today().weekday(), 6)
+    data["injury_watch"], data["watch_missing"] = _injured(), []
+    data["ir_slots"], data["ir_used"] = 1, 1
+    return data
+
+
+def _load(days, zero):
     return {
         "league": {"name": "Demo league", "week": 1},
         "days": days, "today_index": 0, "lineup_slots": ["PG", "SG", "SF", "PF", "C", "G", "F", "UT", "UT", "UT"], "adds_used": 0, "sofar_note": None,

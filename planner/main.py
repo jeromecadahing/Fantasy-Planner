@@ -6,7 +6,7 @@ import sys
 
 import requests
 
-from . import demo, report, sim
+from . import demo, extras, report, sim
 from .config import Config
 
 
@@ -24,17 +24,23 @@ def main():
         data = espn_source.load(cfg)
 
     plan = sim.build_plan(data, cfg)
+    plan["deadlines"] = extras.deadlines(data, plan, cfg)
+    extras.advise(data, cfg, plan)
+    page = os.environ.get("PAGE_URL", "")
     os.makedirs(args.out, exist_ok=True)
+    with open(os.path.join(args.out, "reminders.ics"), "w", encoding="utf-8", newline="") as f:
+        f.write(extras.ics(plan["deadlines"], page))
     with open(os.path.join(args.out, "index.html"), "w", encoding="utf-8") as f:
         f.write(report.render(data, plan))
     with open(os.path.join(args.out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump({"result": plan["result"], "picks": plan["picks"], "notes": plan["notes"],
-                   "scenario": plan.get("scenario")}, f, indent=1)
+                   "scenario": plan.get("scenario"), "deadlines": plan["deadlines"],
+                   "injury_watch": [{k: x.get(k) for k in ("name", "team", "status", "owner", "ret", "verdict", "why")}
+                                    for x in data.get("injury_watch") or []]}, f, indent=1)
 
     text = report.summary(data, plan)
     print(text)
     if cfg.discord_webhook:
-        page = os.environ.get("PAGE_URL", "")
         try:
             requests.post(cfg.discord_webhook, json={"content": text + (f"\n{page}" if page else "")}, timeout=15)
         except requests.RequestException as exc:
