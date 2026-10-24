@@ -7,7 +7,9 @@ Every day, GitHub runs this planner against your ESPN league and publishes a fre
 - who to start each day in your 10 active spots
 - injuries and players whose minutes are trending up
 - a countdown to when today's roster window closes, with the moves to make before then
-- a **My players** tab with per-game averages (season, last 15, last 7, last season) and each player's last 10 games
+- moves for the last day of the matchup that use spare adds to set up next week
+- a projection of every team's 9-category totals for the week, with your rank in each category and your chance of beating each team
+- a **My players** tab with per-game averages (season, last 15, last 7, last season) you can filter and sort, and each player's last 10 games
 - an **Injury watch** tab that tracks injured stars (like Jimmy Butler) and tells you when to add them before anyone else
 
 It pulls rosters, stats (blending season and last 7/15 days), schedules, injury status, free agents, stats already earned this week and your adds used, all from ESPN.
@@ -56,6 +58,9 @@ After that it updates on its own:
 | about 8:15 am | Main plan, after every game from the night before is final |
 | about 10:15 am | Backup, in case GitHub or ESPN was slow |
 | about 9:45 pm | Refresh for the day's injury reports, before the usual midnight UK tip-off |
+| hourly, 9:30 am to 11:30 pm | Roster check: rebuilds the plan only if you've added, dropped or moved someone to IR |
+
+The roster check means that after you make a move in ESPN, the plan catches up within about an hour without you doing anything. Each check is a single small ESPN request; when nothing has changed it stops there, so the Actions tab will show many short runs where the build step is skipped. That's normal. If a check rebuilds the plan, the Discord summary starts with "Roster change spotted".
 
 Add an hour to each in UK summer time. You can also press **Run workflow** any time, for example right after big injury news (the GitHub mobile app works for this). To change the times, edit the `cron` lines at the top of `.github/workflows/daily.yml` (they're in UTC).
 
@@ -63,8 +68,20 @@ Add an hour to each in UK summer time. You can also press **Run workflow** any t
 The top of the page shows when today's roster window closes, which is when your first player (or the player you're picking up) tips off, with a live countdown and the moves to make before then. Times are shown in UK time first, then Eastern.
 
 Two ways to get reminded without opening the page:
-- **Calendar:** tap **Add deadlines to your calendar** on the page. It subscribes your phone's calendar to a feed with an event at each day's deadline and alerts 60 and 15 minutes before. Calendar apps refresh subscriptions on their own schedule (iPhone can be set to every 15 minutes in Settings → Calendar → Accounts → Fetch New Data; Google Calendar can take several hours), so treat the page as the source of truth if a plan changes late.
+- **Calendar:** the page publishes a calendar feed with an event at each day's deadline, listing that day's moves, and alerts 60 and 15 minutes before. Subscribe once and it keeps updating.
+  - **iPhone or Mac:** tap **Add deadlines to your calendar** on the page and choose **Subscribe**. To make it refresh quickly, go to Settings → Calendar → Accounts → Fetch New Data and pick every 15 minutes.
+  - **Android:** the link reads **Add deadlines to Google Calendar** and opens Google Calendar's Add calendar screen; tap **Add**. If that doesn't open, on a computer go to Google Calendar, click **+** next to **Other calendars**, choose **From URL**, and paste the address from **Copy calendar link** (`https://YOUR-USERNAME.github.io/REPO-NAME/reminders.ics`). To see it on your phone, open the Google Calendar app's Settings, tap the new calendar and turn on **Sync**. Google only refreshes subscribed calendars every several hours, so the Discord reminder is more reliable on Android.
+
+  Calendar apps refresh on their own schedule, so treat the page as the source of truth if a plan changes late.
 - **Discord:** if you've set `DISCORD_WEBHOOK_URL`, the **Roster deadline reminder** workflow posts about an hour before each deadline with the moves to make. It reads the published page only, so it doesn't use any ESPN requests.
+
+## Set up next week
+Adds reset when a new matchup starts, so any you still have on the last day are free. The **Set up next week** panel (under the streaming plan) uses them: it finds the free agents who add the most starter games to next week's lineup, counting only games on days you'd have room to start them, weighted by how good they are. It suggests who to drop: streamers from this week first, and a regular only for someone at least as good over the season. If the player to drop still has a game on the last day, it tells you to wait until that game ends. These moves also show in the deadline banner and Discord on the last day.
+
+Next week is assumed to be the Monday to Sunday after this matchup. For a longer one, like the All-Star break, set `NEXT_MATCHUP_END`.
+
+## Your week across the league
+Under the streaming plan, a table projects every team's final 9-category totals for this matchup week: what each team has already earned, plus the rest of the week simulated from its current roster. It shows your rank in each category (green near the top, red near the bottom), a second row for your totals if you follow the streaming plan, and your chance of beating each team if you played them. Other teams are shown without any pickups, so they may finish a little higher than projected.
 
 ## Injury watch
 Lists injured players worth tracking: anyone on your `WATCH_PLAYERS` list (Jimmy Butler by default), injured free agents who'd be good enough to start for you, and your own injured players. For each one it shows ESPN's status and return estimate, how many games his team has left after that, how good he was when healthy (last season's numbers if he's barely played this season), his ownership trend, and the latest ESPN news.
@@ -103,6 +120,7 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 | `YEAR` | automatic | ESPN season year (2026-27 is 2027) |
 | `WHAT_IF` | none | A scenario to show on every run, like `add: Jalen Brunson; drop: Grant Sato` |
 | `WHATIF_SIMS` | 600 | Simulations per add/drop pair in the What if picker. Lower it if runs get slow |
+| `NEXT_MATCHUP_END` | the Sunday after | Last day of next week's matchup, if it's longer than a week |
 | `WATCH_PLAYERS` | Jimmy Butler | Comma-separated injured players to track on the Injury watch tab |
 
 ## Good to know
