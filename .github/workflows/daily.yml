@@ -2,13 +2,23 @@ name: Daily matchup plan
 
 on:
   schedule:
-    # 6 runs a day, about 10-15 ESPN requests each. Times are UTC; ET is 4 hours behind
-    # (5 in winter, so runs land an hour earlier then).
+    # Times are UTC. The UK is on UTC in winter (UTC+1 in summer); US Eastern is UTC-5 in winter (UTC-4 in summer).
     # Minute 17 avoids GitHub's busy top-of-the-hour queue.
-    - cron: "17 14,17,20 * * *"  # about 10 am, 1 pm and 4 pm ET
-    - cron: "17 22,23 * * *"     # about 6:15 and 7:15 pm ET, before most tip-offs
-    - cron: "17 2 * * *"         # about 10:15 pm ET, after the early games finish
+    #
+    # Main run: after every game from the night before is final, including late West Coast games and overtime.
+    # 08:17 UTC is about 8:15 am UK in winter (9:15 am in summer) and 3:15 am Eastern.
+    - cron: "17 8 * * *"
+    # Backup, in case GitHub starts the main run late or ESPN is slow to post the final box scores.
+    - cron: "17 10 * * *"
+    # Pre-lock refresh for the day's injury reports, about 2 hours before the usual 7 pm Eastern tip-off
+    # (about 9:45 pm UK). Delete this line if you only want the morning plan.
+    - cron: "47 21 * * *"
   workflow_dispatch:        # lets you press "Run workflow" any time
+    inputs:
+      what_if:
+        description: "Optional scenario, e.g. add: Jalen Brunson; drop: Grant Sato"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -46,6 +56,8 @@ jobs:
           KEEP_PLAYERS: ${{ vars.KEEP_PLAYERS }}
           MATCHUP_END: ${{ vars.MATCHUP_END }}
           RESERVE_ADDS: ${{ vars.RESERVE_ADDS }}
+          WHAT_IF: ${{ inputs.what_if || vars.WHAT_IF }}
+          WATCH_PLAYERS: ${{ vars.WATCH_PLAYERS || 'Jimmy Butler' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
