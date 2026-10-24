@@ -1,5 +1,5 @@
 """Render the plan as a static web page and a short text summary."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 from html import escape
 from zoneinfo import ZoneInfo
@@ -168,6 +168,16 @@ table.lg td.lg-w small{display:block;font-size:.72rem;color:var(--muted)}
 .lk-cal button{font:600 .88rem/1 Barlow,sans-serif;color:var(--you);background:none;border:1px solid var(--rule);border-radius:6px;padding:5px 8px;cursor:pointer}
 .lk-cal button:focus-visible{outline:2px solid var(--you);outline-offset:1px}
 .lk-and{grid-column:1/-1;margin:0;font-size:.85rem}
+table.sc td.sc-c,table.sc th.sc-d{text-align:center;padding:6px 3px;min-width:2rem}
+table.sc th.sc-d span{display:block}table.sc th.sc-d small{display:block;font-weight:500;font-size:.75rem}
+table.sc .sc-nx{border-left:2px solid var(--rule)}
+table.sc th.sc-wk{text-align:center;font-size:.85rem;padding-bottom:2px}
+table.sc .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--you)}
+table.sc .dot.b2b{background:transparent;border:2.5px solid var(--opp);width:11px;height:11px}
+table.sc td.sc-out{color:var(--bad);font-weight:700}
+table.sc td b{font-weight:700}
+.sub3{font:700 1.1rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:14px 0 4px}
+.xlist{margin:0;padding-left:1.1rem;display:grid;gap:3px;font-size:.93rem}
 [hidden]{display:none!important}
 @media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
@@ -417,7 +427,38 @@ def _whatif(plan):
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
 
 
-def _nextweek(plan):
+def _fa_cross(data, limit=5):
+    """The best free agents who play both the last day of this matchup and the first day of next week."""
+    from .whatif import season_value
+    mine = {p["name"] for p in data["me"]["players"]}
+    out = []
+    for p in sorted(data["fa"], key=season_value, reverse=True):
+        if p["name"] in mine or p["status"] == "Out":
+            continue
+        x = _sched(p, data)
+        if x["cross"]:
+            out.append((p, x))
+        if len(out) == limit:
+            break
+    return out
+
+
+def _fa_cross_html(data):
+    names = _cross_names(data)
+    rows = _fa_cross(data)
+    if not names or not rows:
+        return ""
+    a, b = names
+    items = "".join(f'<li><strong>{escape(p["name"])}</strong> <span class="dc">{escape(p["team"])}</span>: '
+                    f'{x["next"]} game{"s" if x["next"] != 1 else ""} next week'
+                    + (f', {x["b2b_next"]} back-to-back{"s" if x["b2b_next"] != 1 else ""}' if x["b2b_next"] else "")
+                    + "</li>" for p, x in rows)
+    return (f'<h3 class="sub3">Free agents who play {escape(a)} and {escape(b)}</h3>'
+            f'<p class="dc" style="margin:0 0 4px">Added on {escape(a)}, they can play that day if you have a spot and start next week straight away.</p>'
+            f'<ul class="xlist">{items}</ul>')
+
+
+def _nextweek(plan, data):
     nw = plan.get("nextweek") or {}
     if not nw.get("range"):
         return f'<p class="empty">{escape(nw.get("note") or "Next week’s schedule isn’t available yet.")}</p>'
@@ -431,7 +472,7 @@ def _nextweek(plan):
     if not nw.get("moves"):
         stash = (f'<p class="dc">A spare add could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
                  if nw.get("stash") else "")
-        return intro + roster_line + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash
+        return intro + roster_line + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash + _fa_cross_html(data)
     gain = nw["after_starts"] - nw["base_starts"]
     h = (intro + f'<p class="lift"><span class="cd">{nw["base_starts"]:.0f}</span> <span class="arrow">→</span> '
          f'<span class="cd strong">{nw["after_starts"]:.0f}</span> expected starter games next week'
@@ -450,11 +491,22 @@ def _nextweek(plan):
         else:
             drop = "Use your open roster spot."
         trend = f'<p>{escape(m["trend"])}</p>' if m.get("trend") else ""
+        fa = next((p for p in data["fa"] if p["name"] == m["add"]), None)
+        if fa is not None:
+            x = _sched(fa, data)
+            extra = []
+            if x["cross"]:
+                last_day = (_cross_names(data) or ("Sun", "Mon"))[0]
+                extra.append(f"He also plays {last_day}, so he can fill an open spot that day too")
+            if x["b2b_next"]:
+                extra.append(f"{x['b2b_next']} back-to-back{'s' if x['b2b_next'] != 1 else ''} next week")
+            if extra:
+                trend = f'<p>{escape(". ".join(extra))}.</p>' + trend
         h += (f'<li class="step"><div class="sh"><span class="dn">{day}</span>{tag}</div>'
               f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {len(m["add_days"])} game{"s" if len(m["add_days"]) != 1 else ""} next week: '
               f'{escape(", ".join(m["add_days"]))}.</p>{trend}</li>')
-    h += "</ol>"
+    h += "</ol>" + _fa_cross_html(data)
     if nw.get("stash"):
         h += f'<p class="dc">Spare add left over? It could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
     late = any(m["drop_after_game"] for m in nw["moves"])
@@ -559,6 +611,96 @@ def _lock(plan):
             f'<script type="application/json" id="lk-data">{blob}</script></section>')
 
 
+# ---------- Schedule: games, back-to-backs, Sunday-Monday ----------
+
+def _sched(p, data):
+    """A player's remaining games this week and next week, with back-to-backs found from the dates.
+
+    Games he's ruled out of (chance 0) are kept for display but not counted.
+    """
+    from datetime import date as _d
+    days, nd, ti = data["days"], data.get("next_days") or [], data["today_index"]
+    cells = []
+    for i in range(ti, len(days)):
+        cells.append({"date": _d.fromisoformat(days[i]["date"]), "label": days[i]["label"], "week": 0,
+                      "game": bool(p["games"][i]), "ok": bool(p["games"][i]) and p["prob"][i] > 0})
+    ng, npb = p.get("next_games") or [], p.get("next_prob") or []
+    for i, d in enumerate(nd):
+        g = bool(ng[i]) if i < len(ng) else False
+        cells.append({"date": _d.fromisoformat(d["date"]), "label": d["label"], "week": 1,
+                      "game": g, "ok": g and (npb[i] if i < len(npb) else 1) > 0})
+    by_date = {c["date"]: c for c in cells}
+    b2b = 0
+    for c in cells:
+        prev = by_date.get(c["date"] - timedelta(days=1))
+        c["b2b"] = bool(c["ok"] and prev and prev["ok"])
+        b2b += c["b2b"]
+    last = [c for c in cells if c["week"] == 0]
+    first = [c for c in cells if c["week"] == 1]
+    cross = bool(last and first and last[-1]["ok"] and first[0]["ok"]
+                 and (first[0]["date"] - last[-1]["date"]).days == 1)
+    return {"cells": cells, "this": sum(c["ok"] for c in cells if c["week"] == 0),
+            "next": sum(c["ok"] for c in cells if c["week"] == 1), "b2b": b2b, "cross": cross,
+            "b2b_next": sum(c["b2b"] for c in cells if c["week"] == 1)}
+
+
+def _cross_names(data):
+    """Day names for the last day of this matchup and the first of next week, e.g. ('Sun', 'Mon')."""
+    days, nd = data["days"], data.get("next_days") or []
+    if not days or not nd:
+        return None
+    return days[-1]["label"].split()[0], nd[0]["label"].split()[0]
+
+
+def _schedule_section(data):
+    nd = data.get("next_days") or []
+    players = [p for p in data["me"]["players"]]
+    if not nd:
+        return ('<section class="panel" style="margin-bottom:18px"><h2>Schedule</h2><p class="empty">Next week’s '
+                "NBA schedule isn’t available yet.</p></section>")
+    info = [(p, _sched(p, data)) for p in players]
+    info.sort(key=lambda x: (x[0]["ir"], -x[1]["next"], -x[1]["this"], x[0]["name"]))
+    cells0 = info[0][1]["cells"] if info else []
+    n_this = sum(1 for c in cells0 if c["week"] == 0)
+    n_next = len(cells0) - n_this
+    a, b = _cross_names(data) or ("Sun", "Mon")
+    head1 = (f'<tr><th></th><th colspan="{n_this}" class="sc-wk">Rest of this week</th>'
+             f'<th colspan="{n_next}" class="sc-wk sc-nx">Next week</th><th colspan="4"></th></tr>') if n_this else (
+             f'<tr><th></th><th colspan="{n_next}" class="sc-wk sc-nx">Next week</th><th colspan="4"></th></tr>')
+    head2 = "<tr><th>Player</th>"
+    for i, c in enumerate(cells0):
+        cls = " sc-nx" if c["week"] == 1 and (i == 0 or cells0[i - 1]["week"] == 0) else ""
+        head2 += f'<th class="sc-d{cls}"><span>{escape(c["label"].split()[0])}</span><small>{c["date"].day}</small></th>'
+    head2 += (f'<th>This wk</th><th>Next wk</th><th title="Back-to-back pairs, rest of this week and next week">B2B</th>'
+              f'<th title="Plays the last day of this matchup and the first day of next week">{escape(a)}+{escape(b)}</th></tr>')
+    rows = ""
+    for p, x in info:
+        tds = ""
+        for i, c in enumerate(x["cells"]):
+            cls = "sc-c" + (" sc-nx" if c["week"] == 1 and (i == 0 or x["cells"][i - 1]["week"] == 0) else "")
+            if c["game"] and not c["ok"]:
+                tds += f'<td class="{cls} sc-out" title="Game, but ruled out">×</td>'
+            elif c["b2b"]:
+                tds += f'<td class="{cls}" title="Second night of a back-to-back"><i class="dot b2b"></i></td>'
+            elif c["ok"]:
+                tds += f'<td class="{cls}" title="Game"><i class="dot"></i></td>'
+            else:
+                tds += f'<td class="{cls}"></td>'
+        tag = escape(p["team"]) + (f", {escape(p['status'])}" if p["status"] != "Healthy" else "") + (", IR" if p["ir"] else "")
+        rows += (f'<tr{" class=ir" if p["ir"] else ""}><td>{escape(p["name"])}<small>{tag}</small></td>{tds}'
+                 f'<td>{x["this"]}</td><td><b>{x["next"]}</b></td><td>{x["b2b"] or ""}</td>'
+                 f'<td>{"✓" if x["cross"] else ""}</td></tr>')
+    both = [p["name"] for p, x in info if x["cross"] and not p["ir"]]
+    line = (f'<p class="lift" style="font-size:1rem">Play both {escape(a)} and {escape(b)}: '
+            f'<strong>{escape(_join_words(both))}</strong>.</p>' if both else
+            f'<p class="lift" style="font-size:1rem">None of your players has games on both {escape(a)} and {escape(b)}.</p>')
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>Schedule</h2>{line}'
+            f'<p class="hint">Rest of this matchup and next week. A ringed dot is the second night of a back-to-back, when teams '
+            f'sometimes rest players, and × is a game he’s ruled out of. B2B counts back-to-back pairs across both weeks; '
+            f'a {escape(a)}–{escape(b)} pair counts too.</p>'
+            f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{rows}</tbody></table></div></section>')
+
+
 # ---------- My players ----------
 
 AVG_COLS = [("GP", "GP"), ("MIN", "MIN"), ("PTS", "PTS"), ("REB", "REB"), ("AST", "AST"), ("STL", "STL"),
@@ -594,12 +736,14 @@ def _players_tab(data):
     days = data["days"]
     ti = data["today_index"]
     tables = []
-    sort_cols = [c for c, _ in AVG_COLS] + ["FG%", "FT%", "Left"]
+    sort_cols = [c for c, _ in AVG_COLS] + ["FG%", "FT%", "Left", "Next"]
     for k, split in enumerate(SPLIT_ORDER):
         rows = ""
         for p in sorted(players, key=lambda p: (p["ir"], -((p.get("card") or {}).get("avgs", {}).get("Season", {}).get("PTS", 0)))):
             a = (p.get("card") or {}).get("avgs", {}).get(split)
             left = [days[d]["label"].split()[0] for d in range(ti, len(days)) if p["games"][d]]
+            nx = _sched(p, data)
+            nxt_td = f'<td data-v="{nx["next"]}" title="Games next week">{nx["next"]}</td>'
             tag = f'{escape(p["team"])}, {escape(p["status"])}' if p["status"] != "Healthy" else escape(p["team"])
             if p["ir"]:
                 tag += ", IR"
@@ -615,7 +759,7 @@ def _players_tab(data):
             if not a:
                 rows += (f'<tr{attrs}><td>{escape(p["name"])}<small>{tag}</small></td>'
                          f'<td colspan="11" style="text-align:left;color:var(--muted)">No games in this span</td>'
-                         f'<td data-v="{len(left)}">{len(left)}</td></tr>')
+                         f'<td data-v="{len(left)}">{len(left)}</td>{nxt_td}</tr>')
                 continue
             cells = "".join(f'<td data-v="{a.get(c) or 0:.3f}"{_cmp_cls(a.get(c), base, c)}>{_num(a.get(c), 0 if c == "GP" else 1)}</td>'
                             for c, _ in AVG_COLS)
@@ -624,7 +768,7 @@ def _players_tab(data):
             rows += (f'<tr{attrs}><td>{escape(p["name"])}<small>{tag}</small></td>{cells}'
                      f'<td data-v="{fg:.4f}">{_pctx(a.get("FGM", 0), a.get("FGA", 0))}</td>'
                      f'<td data-v="{ft:.4f}">{_pctx(a.get("FTM", 0), a.get("FTA", 0))}</td>'
-                     f'<td data-v="{len(left)}" title="{escape(", ".join(left))}">{len(left)}</td></tr>')
+                     f'<td data-v="{len(left)}" title="{escape(", ".join(left))}">{len(left)}</td>{nxt_td}</tr>')
         head = "".join(f'<th aria-sort="none"><button type="button" data-col="{i + 1}" data-low="{1 if c == "TO" else 0}">{c}</button></th>'
                        for i, c in enumerate(sort_cols))
         tables.append(f'<div class="scroll" data-split="{k}"{"" if k == 0 else " hidden"}><table class="st"><thead><tr>'
@@ -658,7 +802,8 @@ def _players_tab(data):
                  f'<th>TO</th><th>FG</th><th>FT</th></tr></thead><tbody>{rows}</tbody></table></div></details>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Per-game averages</h2>'
             f'<p class="hint">Green and red on the Last 15 and Last 7 views mark stats well above or below his season average. '
-            f'“Left” is games remaining in this matchup. Tap a column heading to sort by it.</p>{filters}{"".join(tables)}</section>'
+            f'“Left” is games remaining in this matchup and “Next” is games next week. Tap a column heading to sort by it.</p>{filters}{"".join(tables)}</section>'
+            f'{_schedule_section(data)}'
             f'<section class="panel"><h2>Game logs</h2><p class="hint">His last 10 games, newest first. Green and red compare each game '
             f'with his season average.</p><div class="logs">{logs or "<p class=empty>No games played yet this season.</p>"}</div></section>')
 
@@ -820,7 +965,7 @@ def render(data, plan):
 <p class="verdict">{verdict}</p><div class="tug">{_tug(res)}</div></section>
 <div class="plan"><div class="stack">
 <section class="panel"><h2>Streaming plan for the week</h2>{_stream(plan)}</section>
-<section class="panel"><h2>Set up next week</h2>{_nextweek(plan)}</section>
+<section class="panel"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
 <section class="panel"><h2>Other pickup options right now</h2>{_picks(plan)}</section>
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div>
 <section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day with the
