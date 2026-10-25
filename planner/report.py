@@ -178,6 +178,11 @@ table.sc td.sc-out{color:var(--bad);font-weight:700}
 table.sc td b{font-weight:700}
 .sub3{font:700 1.1rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:14px 0 4px}
 .xlist{margin:0;padding-left:1.1rem;display:grid;gap:3px;font-size:.93rem}
+.more{margin-top:14px;border-top:1px solid var(--rule);padding-top:10px}
+.more>summary{cursor:pointer;font:700 1.1rem/1.2 "Barlow Condensed","Arial Narrow",sans-serif;color:var(--ink)}
+.more[open]>summary{margin-bottom:10px}
+table.trend td:first-child{white-space:nowrap}
+#tab-plan>.panel,#tab-plan>section{margin-bottom:18px}
 [hidden]{display:none!important}
 @media (max-width:620px){.wi{grid-template-columns:1fr}.cg{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:820px){.plan{grid-template-columns:1fr}}
@@ -227,8 +232,7 @@ def _picks(plan):
                      f'Expected categories {x["cats_delta"]:+.2f}.</p>{trend}'
                      f'{f"<div class=moves>{moves}</div>" if moves else ""}</li>')
     return (h + '<ol class="picks">' + "".join(items) + "</ol>"
-            '<p class="hint" style="margin-top:10px">The big number is the change in your chance to win the week. '
-            "The chips show how each category’s win chance moves.</p>")
+            '<p class="hint" style="margin-top:10px">Big number: change in your chance to win the week.</p>')
 
 
 def _days_list(days):
@@ -269,8 +273,7 @@ def _stream(plan):
               f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {_days_list(m["add_days"])} for you'
               + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}{_alts(m)}</li>')
-    h += ('</ol><p class="hint" style="margin-top:10px">The plan is rebuilt on every run, so later steps can change '
-          "as injuries and box scores come in. Make today’s move; treat the rest as the current best path.</p>")
+    h += ('</ol><p class="hint" style="margin-top:10px">Make today’s moves; later steps can change as news comes in.</p>')
     return h
 
 
@@ -410,18 +413,15 @@ fill();var d0=D.days[0],o0=+A.value,b0=d0.rows[o0]?bestDrop(d0.rows[o0],o0):-1;i
 def _whatif(plan):
     g = plan.get("whatif") or {}
     sc = _scenario(plan.get("scenario"))
-    help_ = ('<p class="hint" style="margin-top:12px">Want someone who isn’t listed, like a trade target or a player on '
-             'your opponent’s team? In GitHub go to <strong>Actions → Daily matchup plan → Run workflow</strong> and '
-             'type a scenario such as <code>add: Jalen Brunson; drop: Grant Sato</code>. Add <code>day: Thu</code> to '
-             'start it later in the week. Separate several names with commas.</p>')
+    help_ = ('<p class="hint" style="margin-top:12px">For someone not listed, like a trade target, go to <strong>Actions → '
+             'Daily matchup plan → Run workflow</strong> and type e.g. <code>add: Jalen Brunson; drop: Grant Sato</code>.</p>')
     if not g.get("adds"):
         return sc + f'<p class="empty">{escape(g.get("note") or "No free agents to test.")}</p>' + help_
     data = dict(g)
     res = plan["result"]
     data["base"] = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-    return (sc + '<p class="hint">Pick a day, a free agent and who you’d drop to see how the rest of this matchup changes. Free agents are listed by how much they can help from that day, with the days they play. '
-            'Every combination was simulated when the page was built, and compares against making no moves.</p>'
+    return (sc + '<p class="hint">Pick a day, a pickup and a drop to see how your chances change.</p>'
             '<div class="wi"><label>Starting<select id="wi-day"></select></label><label>Add<select id="wi-add"></select></label>'
             '<label>Drop<select id="wi-drop"></select></label></div><div class="wibest" id="wi-best"></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
@@ -463,8 +463,8 @@ def _nextweek(plan, data):
     if not nw.get("range"):
         return f'<p class="empty">{escape(nw.get("note") or "Next week’s schedule isn’t available yet.")}</p>'
     day = escape(nw["day"])
-    intro = (f'<p class="hint">Adds reset when next week’s matchup starts, so any left on {day} are free. '
-             f'These moves set up next week ({escape(nw["range"])}) without costing you anything this week.</p>')
+    intro = (f'<p class="hint">Adds reset for next week, so any left on {day} are free. Moves for '
+             f'{escape(nw["range"])}.</p>')
     games = nw.get("roster_games") or []
     few = [f"{escape(n)} ({g})" for n, g in games if g <= 2]
     roster_line = (f'<p class="dc" style="margin:0 0 10px">Fewest games next week on your roster: {", ".join(few)}.</p>'
@@ -472,8 +472,9 @@ def _nextweek(plan, data):
     if not nw.get("moves"):
         stash = (f'<p class="dc">A spare add could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
                  if nw.get("stash") else "")
-        return intro + roster_line + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash + _fa_cross_html(data)
+        return intro + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash + _fa_cross_html(data)
     gain = nw["after_starts"] - nw["base_starts"]
+    roster_line = ""  # the Schedule section on the same tab shows this in full
     h = (intro + f'<p class="lift"><span class="cd">{nw["base_starts"]:.0f}</span> <span class="arrow">→</span> '
          f'<span class="cd strong">{nw["after_starts"]:.0f}</span> expected starter games next week'
          f'{f" (+{gain:.1f})" if gain >= 0.5 else ""}, using {len(nw["moves"])} of your {nw["adds_left"]} spare '
@@ -510,10 +511,8 @@ def _nextweek(plan, data):
     if nw.get("stash"):
         h += f'<p class="dc">Spare add left over? It could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
     late = any(m["drop_after_game"] for m in nw["moves"])
-    h += ('<p class="hint" style="margin-top:10px">Counts only games on days your lineup has room, so a player whose games '
-          'land on already-full days doesn’t score well here. This is rebuilt every run; make the moves on the last day.'
-          + (" A move that waits for a late game still works if you make it the next morning, but if ESPN has already started "
-             "the new matchup it uses one of next week’s adds instead." if late else "") + "</p>")
+    h += ('<p class="hint" style="margin-top:10px">Counts only games on days you have a free lineup spot.'
+          + (" A move made after ESPN starts the new week uses one of next week’s adds." if late else "") + "</p>")
     return h
 
 
@@ -567,9 +566,8 @@ def _league(plan):
             "<p class=dc>Only your matchup could be read this week, so the table shows just you and your opponent.</p>")
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Your week across the league</h2>'
             f'<p class="lift" style="font-size:1rem">{line}</p>'
-            f'<p class="hint">Projected final totals for this matchup week: what each team has already earned plus the rest of the '
-            f'week simulated from its current roster. The small number is the rank out of {n}. Other teams are shown with no '
-            f'pickups, so they may finish a little higher. The last column is your chance of beating that team if you played them.</p>'
+            f'<p class="hint">Projected final totals, with rank out of {n}. Other teams are shown without pickups. '
+            f'Last column: your chance if you played them.</p>'
             f'{note}<div class="scroll"><table class="st lg"><thead><tr><th>Team</th>{head}<th>Your chance</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div></section>')
 
@@ -599,8 +597,8 @@ def _lock(plan):
     return (f'<section class="lock" id="lock" aria-live="polite"><div><div class="lk-time" id="lk-time">'
             f'{escape(first["lock_txt"].split(" UK")[0])}</div><div class="lk-left" id="lk-left"></div></div>'
             f'<div class="lk-body"><p id="lk-head"><strong>{"Today’s" if first["today"] else escape(first["label"]) + "’s"} roster window '
-            f'closes at {escape(first["lock_txt"])}.</strong></p><p class="dc" id="lk-why">{escape(first["why"])}, and his lineup spot '
-            f'locks. Make any pickup and set your lineup before then.</p>'
+            f'closes at {escape(first["lock_txt"])}.</strong></p><p class="dc" id="lk-why">{escape(first["why"])} then. '
+            f'Make pickups and set your lineup before.</p>'
             f'<div class="lk-todo" id="lk-todo">{todo}</div>'
             f'{"" if todo else "<p class=dc id=lk-none>No pickups planned for this day. Just check your lineup and late scratches.</p>"}</div>'
             f'<div class="lk-next">{nxt}<span class="lk-cal"><a id="lk-cal" href="reminders.ics">Add deadlines to your calendar</a>'
@@ -695,10 +693,50 @@ def _schedule_section(data):
             f'<strong>{escape(_join_words(both))}</strong>.</p>' if both else
             f'<p class="lift" style="font-size:1rem">None of your players has games on both {escape(a)} and {escape(b)}.</p>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Schedule</h2>{line}'
-            f'<p class="hint">Rest of this matchup and next week. A ringed dot is the second night of a back-to-back, when teams '
-            f'sometimes rest players, and × is a game he’s ruled out of. B2B counts back-to-back pairs across both weeks; '
-            f'a {escape(a)}–{escape(b)} pair counts too.</p>'
+            f'<p class="hint">Ringed dot: second night of a back-to-back. ×: ruled out.</p>'
             f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{rows}</tbody></table></div></section>')
+
+
+def _teams_section(data):
+    ts, nd = data.get("team_sched") or {}, data.get("next_days") or []
+    if not ts or not nd:
+        return ""
+    from datetime import date as _d
+    dates = [_d.fromisoformat(d["date"]) for d in nd]
+    names = _cross_names(data) or ("Sun", "Mon")
+    mine = {p["team"] for p in data["me"]["players"] if not p["ir"]}
+    rows = []
+    for team, x in ts.items():
+        g = x["next"]
+        pairs = [f'{nd[i - 1]["label"].split()[0]}–{nd[i]["label"].split()[0]}'
+                 for i in range(1, len(g)) if g[i] and g[i - 1] and (dates[i] - dates[i - 1]).days == 1]
+        cross = bool(x.get("last") and g and g[0] and dates and data["days"]
+                     and (dates[0] - _d.fromisoformat(data["days"][-1]["date"])).days == 1)
+        rows.append({"team": team, "n": sum(g), "g": g, "pairs": pairs, "cross": cross})
+    rows.sort(key=lambda r: (-len(r["pairs"]), -r["n"], r["team"]))
+    with_b2b = [r for r in rows if r["pairs"]]
+    head = "".join(f'<th class="sc-d"><span>{escape(d["label"].split()[0])}</span><small>{dt.day}</small></th>'
+                   for d, dt in zip(nd, dates))
+    body = ""
+    for r in rows:
+        cells = ""
+        for i, g in enumerate(r["g"]):
+            second = i > 0 and g and r["g"][i - 1] and (dates[i] - dates[i - 1]).days == 1
+            cells += ('<td class="sc-c"><i class="dot b2b"></i></td>' if second else
+                      '<td class="sc-c"><i class="dot"></i></td>' if g else '<td class="sc-c"></td>')
+        you = ' <span class="dc">(yours)</span>' if r["team"] in mine else ""
+        body += (f'<tr><td>{escape(r["team"])}{you}</td>{cells}<td><b>{r["n"]}</b></td>'
+                 f'<td style="text-align:left">{escape(", ".join(r["pairs"]))}</td><td>{"✓" if r["cross"] else ""}</td></tr>')
+    if with_b2b:
+        line = (f'<p class="lift" style="font-size:1rem">{len(with_b2b)} of {len(rows)} teams play a back-to-back next week. '
+                f'They’re listed first.</p>')
+    else:
+        line = '<p class="lift" style="font-size:1rem">No team plays back-to-back next week.</p>'
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>NBA teams next week</h2>{line}'
+            f'<p class="hint">Ringed dot: second night of a back-to-back.</p>'
+            f'<div class="scroll"><table class="st sc"><thead><tr>'
+            f'<th>Team</th>{head}<th>Games</th><th style="text-align:left">Back-to-backs</th>'
+            f'<th>{escape(names[0])}+{escape(names[1])}</th></tr></thead><tbody>{body}</tbody></table></div></section>')
 
 
 # ---------- My players ----------
@@ -752,7 +790,6 @@ def _players_tab(data):
                 flags.append("week")
             if ti < len(days) and p["games"][ti] and not p["ir"]:
                 flags.append("today")
-            flags.append("injured" if (p["ir"] or p["status"] != "Healthy") else "healthy")
             attrs = (f' data-name="{escape(p["name"].lower())}" data-f="{" ".join(flags)}"'
                      + (' class="ir"' if p["ir"] else ""))
             base = (p.get("card") or {}).get("avgs", {}).get("Season") if split in ("Last 15", "Last 7") else None
@@ -777,8 +814,7 @@ def _players_tab(data):
     seg = "".join(f'<button type="button" data-k="{k}" aria-pressed="{"true" if k == 0 else "false"}">{s_}</button>'
                   for k, s_ in enumerate(SPLIT_ORDER))
     chips = "".join(f'<button type="button" data-f="{f}" aria-pressed="{"true" if f == "all" else "false"}">{l}</button>'
-                    for f, l in (("all", "All"), ("today", "Playing today"), ("week", "Playing this week"),
-                                 ("healthy", "Healthy"), ("injured", "Injured or IR")))
+                    for f, l in (("all", "All"), ("today", "Playing today"), ("week", "Playing this week")))
     filters = (f'<div class="pf"><label class="pf-q"><span class="sr">Find a player</span>'
                f'<input type="search" id="pf-q" placeholder="Find a player" autocomplete="off"></label>'
                f'<div class="seg" id="split-seg">{seg}</div><div class="seg pf-chips" id="pf-chips">{chips}</div></div>')
@@ -801,11 +837,9 @@ def _players_tab(data):
                  f'<thead><tr><th>Game</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>3PM</th>'
                  f'<th>TO</th><th>FG</th><th>FT</th></tr></thead><tbody>{rows}</tbody></table></div></details>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Per-game averages</h2>'
-            f'<p class="hint">Green and red on the Last 15 and Last 7 views mark stats well above or below his season average. '
-            f'“Left” is games remaining in this matchup and “Next” is games next week. Tap a column heading to sort by it.</p>{filters}{"".join(tables)}</section>'
-            f'{_schedule_section(data)}'
-            f'<section class="panel"><h2>Game logs</h2><p class="hint">His last 10 games, newest first. Green and red compare each game '
-            f'with his season average.</p><div class="logs">{logs or "<p class=empty>No games played yet this season.</p>"}</div></section>')
+            f'<p class="hint">Green and red: well above or below his season average. Tap a heading to sort.</p>{filters}{"".join(tables)}</section>'
+''
+            f'<section class="panel"><h2>Game logs</h2><p class="hint">Last 10 games, compared with his season average.</p><div class="logs">{logs or "<p class=empty>No games played yet this season.</p>"}</div></section>')
 
 
 # ---------- Injury watch ----------
@@ -829,9 +863,8 @@ def _nice_date(iso):
 
 def _injury_tab(data):
     watch = data.get("injury_watch") or []
-    help_ = ('<p class="hint" style="margin-top:14px">To track a specific player, like Jimmy Butler, add his name to the '
-             '<code>WATCH_PLAYERS</code> variable in GitHub (<strong>Settings → Secrets and variables → Actions → Variables</strong>). '
-             'Separate several names with commas. Injured free agents who’d be good enough to start for you are added automatically.</p>')
+    help_ = ('<p class="hint" style="margin-top:14px">Track more players by adding names to the <code>WATCH_PLAYERS</code> '
+             'variable in GitHub (Settings → Secrets and variables → Actions → Variables).</p>')
     miss = "".join(f'<p class="warn">Couldn’t find “{escape(m)}” in ESPN’s player list. Check the spelling in WATCH_PLAYERS.</p>'
                    for m in data.get("watch_missing") or [])
     if not watch:
@@ -839,8 +872,8 @@ def _injury_tab(data):
     grab = [x for x in watch if x["bucket"] <= 2 and x["owner"] in ("Free agent", "On waivers")]
     order = ""
     if grab:
-        order = ('<h2>Who to grab first</h2><p class="hint">Ranked by how soon you need to act, then by how good he is. '
-                 'Players marked “Add now” are the ones to get ahead of everybody else on.</p><ol class="order">'
+        order = ('<h2>Who to grab first</h2><p class="hint">Most urgent first.</p>'
+                 '<ol class="order">'
                  + "".join(f'<li><strong>{escape(x["name"])}</strong>: {escape(x["verdict"])}'
                            + (f" (your #{x['rank']} player when healthy)" if x.get("rank") else "") + "</li>"
                            for x in grab) + "</ol>")
@@ -870,8 +903,7 @@ def _injury_tab(data):
                    f'<ul>{"".join(f"<li>{escape(w)}</li>" for w in x["why"])}</ul>'
                    f'{f"<div class=news>{news}</div>" if news else ""}</article>')
     return (miss + f'<section class="panel" style="margin-bottom:18px">{order}<h2>Injured players</h2>'
-            f'<p class="hint">Return dates are ESPN’s estimates and often move. Ownership change is ESPN’s recent trend; '
-            f'a jump usually means a return is close.</p><div class="inj">{cards_}</div>{help_}</section>')
+            f'<p class="hint">Return dates are ESPN’s estimates and often move.</p><div class="inj">{cards_}</div>{help_}</section>')
 
 
 PAGE_JS = r"""(function(){
@@ -924,7 +956,7 @@ function tick(){var now=Date.now(),i=0;while(i<dl.length&&Date.parse(dl[i].at)<=
  left.textContent='closes in '+(h?h+' h ':'')+m+' min';box.className='lock'+(ms<36e5*2?' soon':'');
  if(i>0&&!box.dataset.moved){box.dataset.moved=1;document.getElementById('lk-time').textContent=d.txt.split(' UK')[0];
   document.getElementById('lk-head').innerHTML='<strong>'+d.label+'\u2019s roster window closes at '+d.txt+'.</strong>';
-  document.getElementById('lk-why').textContent=d.why+', and his lineup spot locks. Make any pickup and set your lineup before then.';
+  document.getElementById('lk-why').textContent=d.why+' then. Make pickups and set your lineup before.';
   var t=document.getElementById('lk-todo');t.innerHTML='';d.moves.forEach(function(x){var s=document.createElement('span');s.textContent=x;t.appendChild(s);});
   var n=document.getElementById('lk-none');if(n)n.hidden=d.moves.length>0;}}
 tick();setInterval(tick,30000);
@@ -953,33 +985,37 @@ def render(data, plan):
 <p class="sub">{escape(data["league"]["name"])}, week {data["league"]["week"]}. Updated {now}.</p>
 {_lock(plan)}
 <nav class="tabs" role="tablist" aria-label="Sections">
-<button type="button" role="tab" data-tab="plan" aria-controls="tab-plan">Matchup plan</button>
-<button type="button" role="tab" data-tab="players" aria-controls="tab-players">My players</button>
-<button type="button" role="tab" data-tab="injuries" aria-controls="tab-injuries">Injury watch{f'<span class="n">{n_act}</span>' if n_act else ""}</button>
+<button type="button" role="tab" data-tab="plan" aria-controls="tab-plan">This week</button>
+<button type="button" role="tab" data-tab="next" aria-controls="tab-next">Next week</button>
+<button type="button" role="tab" data-tab="players" aria-controls="tab-players">Players</button>
+<button type="button" role="tab" data-tab="injuries" aria-controls="tab-injuries">Injuries{f'<span class="n">{n_act}</span>' if n_act else ""}</button>
 </nav>
-<div id="tab-plan" role="tabpanel" aria-label="Matchup plan">
+<div id="tab-plan" role="tabpanel" aria-label="This week">
 <section class="board"><div class="score">
 <div class="side you"><span class="team">{escape(me)}</span><span class="big">{res["cats"]:.1f}</span></div>
 <div class="mid">categories<br>won</div>
 <div class="side opp"><span class="team">{escape(opp)}</span><span class="big">{9 - res["cats"]:.1f}</span></div></div>
 <p class="verdict">{verdict}</p><div class="tug">{_tug(res)}</div></section>
-<div class="plan"><div class="stack">
-<section class="panel"><h2>Streaming plan for the week</h2>{_stream(plan)}</section>
-<section class="panel"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
-<section class="panel"><h2>Other pickup options right now</h2>{_picks(plan)}</section>
-<section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div>
-<section class="panel"><h2>Daily lineup</h2><p class="hint">Who to start in your active spots each day with the
-streaming plan in place, ordered by how much they help the categories still up for grabs.</p>{_days(plan)}</section></div>
+<div class="plan">
+<section class="panel"><h2>Streaming plan</h2>{_stream(plan)}
+<details class="more"><summary>Other pickups right now</summary>{_picks(plan)}</details></section>
+<div class="stack">
+<section class="panel"><h2>Daily lineup</h2>{_days(plan)}</section>
+<section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div></div>
 {_league(plan)}
-<section class="panel" style="margin-bottom:18px"><h2>What if…</h2>{_whatif(plan)}</section>
-{f'<section class="panel"><h2>Injuries and minutes trends</h2><table>{trends}</table></section>' if trends else ""}
+<section class="panel"><h2>What if…</h2>{_whatif(plan)}</section>
 </div>
-<div id="tab-players" role="tabpanel" aria-label="My players" hidden>{_players_tab(data)}</div>
-<div id="tab-injuries" role="tabpanel" aria-label="Injury watch" hidden>{_injury_tab(data)}</div>
-<p class="foot">Each remaining game is simulated thousands of times from recent per-game averages, with
-injury status setting each player’s chance to play. Lineups follow your league’s position slots, so a player
-only starts in a spot ESPN would let him fill. The plan rebuilds each morning UK time, after the night’s games are final.
-Always check ESPN for late scratches before games lock.</p>
+<div id="tab-next" role="tabpanel" aria-label="Next week" hidden>
+<section class="panel" style="margin-bottom:18px"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
+{_schedule_section(data)}{_teams_section(data)}
+</div>
+<div id="tab-players" role="tabpanel" aria-label="Players" hidden>{_players_tab(data)}</div>
+<div id="tab-injuries" role="tabpanel" aria-label="Injuries" hidden>{_injury_tab(data)}
+{f'<section class="panel"><h2>Status and minutes changes</h2><p class="hint">Injury status and minutes trends for both rosters, and free agents whose minutes are rising.</p><div class="scroll"><table class="trend">{trends}</table></div></section>' if trends else ""}
+</div>
+<p class="foot">Every remaining game is simulated thousands of times from recent averages, with injury status setting each
+player’s chance to play and lineups following your league’s position slots. Updated each morning after the night’s games,
+and within an hour of any roster move. Always check ESPN for late scratches before games lock.</p>
 <script>{PAGE_JS}</script>
 </div></body></html>"""
 
