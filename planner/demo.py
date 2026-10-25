@@ -120,6 +120,9 @@ def load():
            "D": [0, 1, 1, 0, 0, 1, 0], "E": [1, 0, 0, 1, 0, 0, 1], "F": [0, 0, 1, 1, 1, 1, 0]}
     data["next_days"] = [{"date": (monday + timedelta(days=7 + i)).isoformat(),
                           "label": (monday + timedelta(days=7 + i)).strftime("%a %b %-d")} for i in range(7)]
+    names = ["ATL", "BOS", "CHI", "DEN", "GSW", "LAL", "MIA", "NYK", "OKC", "PHX"]
+    data["team_sched"] = {t: {"last": bool(SCHED["ABCDEF"[i % 6]][6]), "next": [bool(g) for g in nxt["ABCDEF"[(i * 5) % 6]]]}
+                          for i, t in enumerate(names)}
     for p in data["me"]["players"] + data["opp"]["players"] + data["fa"]:
         p["next_games"] = [bool(g) for g in nxt[p["sched"]]]
         p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
