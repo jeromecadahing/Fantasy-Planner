@@ -478,4 +478,8 @@ def load(cfg):
         "injury_watch": watch, "watch_missing": missing,
         "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "next_days": _CTX["next_days"],
         "roster_fp": fingerprint((p.playerId, p.lineupSlot == "IR") for p in me_team.roster),
+        # Every NBA team's games on the last day of this matchup and on each day of next week.
+        "team_sched": {abbr: {"last": bool(days) and days[-1]["sp"] in sps,
+                              "next": [d["sp"] in sps for d in _CTX["next_days"]]}
+                       for abbr, sps in team_games.items() if abbr},
     }
