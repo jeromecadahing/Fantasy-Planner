@@ -260,6 +260,9 @@ def scenario(data, cfg, w, opp_tot, res):
                             + (" and get " + ", ".join(p["name"] for p in drops) if drops else "") + ".")
 
     after = compare(sim_team(my_es, days_left, sofar, cfg.sims, np.random.default_rng(777), slots), opp_after)
+    nxt = _next_week(data, slots, me_all, adds, drops, trade)
+    if nxt and nxt.get("note"):
+        out["notes"].append(nxt.pop("note"))
     starts_before = _starts(entries(me_players, w), days_left, slots)
     starts_after = _starts(my_es, days_left, slots)
     out.update({
@@ -270,5 +273,28 @@ def scenario(data, cfg, w, opp_tot, res):
         "before": {"win": res["win"], "cats": res["cats"], "catP": res["catP"]},
         "after": {"win": after["win"], "cats": after["cats"], "catP": after["catP"]},
         "starts_delta": starts_after - starts_before,
+        "next": nxt,
     })
+    return out
+
+
+def _next_week(data, slots, me_all, adds, drops, trade):
+    """Next matchup before and after the move, both rosters otherwise as they stand today."""
+    from .nextmatch import simulate
+    nm, nd = data.get("next_opp"), data.get("next_days") or []
+    if not nm or not nd:
+        return None
+    opp_before = nm["players"]
+    opp_after = opp_before
+    if trade and nm.get("same"):  # you trade with the team you face again next week
+        opp_after = [p for p in opp_before if not any(p is a for a in adds)] + list(drops)
+    me_after = [p for p in me_all if not any(p is d for d in drops)] + list(adds)
+    before = simulate(me_all, opp_before, len(nd), slots)
+    after = simulate(me_after, opp_after, len(nd), slots)
+    out = {"name": nm["name"],
+           "before": {k: before[k] for k in ("win", "cats", "catP", "games")},
+           "after": {k: after[k] for k in ("win", "cats", "catP", "games")}}
+    missing = [a["name"] for a in adds if not a.get("next_games")]
+    if missing:
+        out["note"] = f"No next-week schedule for {', '.join(missing)}, so next week counts no games for him."
     return out
