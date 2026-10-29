@@ -22,6 +22,31 @@ def _season_year():
     return today.year + 1 if today.month >= 8 else today.year
 
 
+def _float(name, default, lo, hi):
+    try:
+        v = float(_env(name, str(default)))
+    except ValueError:
+        raise SystemExit(f"{name} must be a number, got {os.environ.get(name)!r}")
+    if not lo <= v <= hi:
+        raise SystemExit(f"{name} must be between {lo} and {hi}, got {v:g}")
+    return v
+
+
+def _boosts(text):
+    """'Jrue Holiday: 1.1, Ty Jerome: 0.9' -> (('jrue holiday', 1.1), ('ty jerome', 0.9))"""
+    out = []
+    for item in (x.strip() for x in text.split(",") if x.strip()):
+        name, sep, mult = item.rpartition(":")
+        try:
+            m = float(mult)
+        except ValueError:
+            m = None
+        if not sep or not name.strip() or m is None or not 0.3 <= m <= 2.0:
+            raise SystemExit(f"USAGE_BOOST entries look like 'Jrue Holiday: 1.1' (0.3 to 2.0), got {item!r}")
+        out.append((name.strip().lower(), m))
+    return tuple(out)
+
+
 @dataclass
 class Config:
     league_id: int = 0
@@ -46,6 +71,9 @@ class Config:
     whatif_sims: int = 600
     watch_players: tuple = ()
     next_matchup_end: str = ""
+    recent_form: float = 0.5
+    projection_games: int = 3
+    usage_boost: tuple = ()
 
     @classmethod
     def from_env(cls):
@@ -72,5 +100,8 @@ class Config:
             what_if=_env("WHAT_IF"),
             whatif_sims=_int("WHATIF_SIMS", 600),
             next_matchup_end=_env("NEXT_MATCHUP_END"),
+            recent_form=_float("RECENT_FORM", 0.5, 0.0, 1.0),
+            projection_games=_int("PROJECTION_GAMES", 3),
+            usage_boost=_boosts(_env("USAGE_BOOST")),
             watch_players=tuple(n.strip() for n in _env("WATCH_PLAYERS").split(",") if n.strip()),
         )
