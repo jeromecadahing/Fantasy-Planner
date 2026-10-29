@@ -143,37 +143,96 @@ def _avg(parts):
     return {k: round(sum((sp["avg"].get(v) or 0) * w for sp, w in parts) / wsum, 3) for k, v in STAT_KEYS.items()}
 
 
-def _blend(p, year):
-    """Per-game averages for this week, and a steadier season-long version.
+def _avg_min(parts):
+    """Minutes per game implied by the same weighted mix, counting only splits that report minutes."""
+    have = [(sp, w) for sp, w in parts if _mpg(sp)]
+    wsum = sum(w for _, w in have)
+    return sum(_mpg(sp) * w for sp, w in have) / wsum if wsum else 0
 
-    Early in the season a player's real numbers come from only a few games, so they're pulled
-    toward ESPN's preseason projection until the sample is big enough to trust.
-    The 7- and 15-day splits are only used once there's a real season behind them;
-    before that they're the same few games counted twice.
+
+def _mix(real, proj, gps, k):
+    """Real splits pulled toward the projection by k games' worth of trust. Returns (parts, weights)."""
+    has_proj = bool(proj.get("avg"))
+    if not real:
+        return [(proj, 1.0)]
+    if not has_proj:
+        return real
+    pw = k / (gps + k)
+    rsum = sum(w for _, w in real)
+    return [(sp, w / rsum * (1 - pw)) for sp, w in real] + [(proj, pw)]
+
+
+def _blend(p, year):
+    """Per-game averages for this week, a steadier season-long version, and a note on recent form.
+
+    This week's line leans on the last 7 and 15 days by RECENT_FORM (from 3 games into the season),
+    and on ESPN's preseason projection by PROJECTION_GAMES games' worth of trust. If his minutes over
+    the last 7 days differ from what that line implies, his counting stats are scaled toward his new
+    role (percentages don't change). A USAGE_BOOST you set for him is applied last.
+
+    The season-long line, used to decide whether a regular can be cut for good and for next week,
+    keeps the original steadier weighting and ignores USAGE_BOOST.
     """
     season, l15, l7, proj = (_split(p, year, k) for k in ("total", "last_15", "last_7", "projected"))
     gps = _gp(season)
-    real = []
-    if gps >= 1 and season.get("avg"):
-        real.append((season, 0.4 if gps >= 8 else 1.0))
+    has_season = gps >= 1 and bool(season.get("avg"))
+
+    # Season-long: unchanged from before.
+    long_real = []
+    if has_season:
+        long_real.append((season, 0.4 if gps >= 8 else 1.0))
         if gps >= 8 and _gp(l15) >= 3 and l15.get("avg"):
-            real.append((l15, 0.4))
+            long_real.append((l15, 0.4))
         if gps >= 8 and _gp(l7) >= 2 and l7.get("avg"):
-            real.append((l7, 0.2))
-    has_proj = bool(proj.get("avg"))
-    if not real and not has_proj:
-        return None, None
+            long_real.append((l7, 0.2))
+    if not long_real and not proj.get("avg"):
+        return None, None, None
+    long_line = _avg(_mix(long_real, proj, gps, 15))
 
-    def mix(k):  # projection weight shrinks as games are played: k games' worth of trust
-        if not real:
-            return _avg([(proj, 1.0)])
-        if not has_proj:
-            return _avg(real)
-        pw = k / (gps + k)
-        rsum = sum(w for _, w in real)
-        return _avg([(sp, w / rsum * (1 - pw)) for sp, w in real] + [(proj, pw)])
+    r = _CTX["recent"]
+    if r <= 0:  # recent form off: the original weekly blend
+        parts = _mix(long_real, proj, gps, 6)
+        return _avg(parts), long_line, _boost(p, _avg(parts), None)
 
-    return mix(6), mix(15)
+    recent = []
+    if has_season and gps >= 3:
+        if _gp(l15) >= 3 and l15.get("avg"):
+            recent.append((l15, 2.0))
+        if _gp(l7) >= 2 and l7.get("avg"):
+            recent.append((l7, 1.0))
+    week_real = []
+    if has_season:
+        if recent:
+            rs = sum(w for _, w in recent)
+            week_real = [(season, 1 - r)] + [(sp, r * w / rs) for sp, w in recent]
+        else:
+            week_real = [(season, 1.0)]
+    parts = _mix(week_real, proj, gps, _CTX["proj_games"])
+    week = _avg(parts)
+
+    # Role change: move his volume toward his last-7-day minutes.
+    note = None
+    m7, implied = _mpg(l7), _avg_min(parts)
+    if has_season and gps >= 3 and _gp(l7) >= 2 and m7 and implied and abs(m7 - implied) >= 2:
+        f = min(1.25, max(0.8, 1 + r * (m7 - implied) / implied))
+        week = {k: round(v * f, 3) for k, v in week.items()}
+        note = f"volume {f - 1:+.0%} for {m7:.1f} min last 7 days vs {implied:.1f} expected"
+    return week, long_line, _boost(p, week, note)
+
+
+def _boost(p, week, note):
+    """Apply a USAGE_BOOST multiplier you set for this player, in place. Returns the form note."""
+    name = (p.name or "").lower()
+    hit = next((v for k, v in _CTX["boost"].items() if k == name), None)
+    if hit is None:
+        hits = [v for k, v in _CTX["boost"].items() if k in name]
+        hit = hits[0] if len(hits) == 1 else None
+    if hit is None or hit == 1:
+        return note
+    for k in week:
+        week[k] = round(week[k] * hit, 3)
+    extra = f"your boost x{hit:g}"
+    return f"{note}; {extra}" if note else extra
 
 
 def _trend(p, year):
@@ -187,14 +246,17 @@ def _trend(p, year):
     return None
 
 
-_CTX = {"team_tips": {}, "next_days": []}
+_CTX = {"team_tips": {}, "next_days": [], "recent": 0.0, "proj_games": 6, "boost": {}}
 
 
 def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
     team_tips = team_tips if team_tips is not None else _CTX["team_tips"]
-    stats, season_long = _blend(p, year)
+    stats, season_long, form = _blend(p, year)
     if stats is None:
         return None
+    trend = _trend(p, year)
+    if form:
+        trend = f"{trend}. Plan uses {form}" if trend else f"Plan uses {form}"
     label, p_today, p_later = STATUS.get(p.injuryStatus, ("Healthy", 1.0, 1.0))
     ret = getattr(p, "expected_return_date", None)
     games, prob = [], []
@@ -208,7 +270,7 @@ def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
     elig = [x for x in (getattr(p, "eligibleSlots", None) or []) if x and x not in NOT_ACTIVE]
     return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position, "elig": elig,
             "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
-            "trend": _trend(p, year),
+            "trend": trend, "form": form,
             "tips": [((team_tips or {}).get(p.proTeam) or {}).get(d["sp"]) for d in days],
             "next_games": [d["sp"] in played for d in _CTX["next_days"]],
             "next_prob": [p_later if not (p_later == 0 and ret and date.fromisoformat(d["date"]) >= ret) else 0.6
@@ -414,6 +476,7 @@ def load(cfg):
     days, today_index = _matchup_days(lg, cfg, sp_date, day_tips)
     today_sp = _today_sp(lg, sp_date)
     _CTX["team_tips"] = team_tips
+    _CTX["recent"], _CTX["proj_games"], _CTX["boost"] = cfg.recent_form, cfg.projection_games, dict(cfg.usage_boost)
     _CTX["next_days"] = _next_days(cfg, sp_date, days)
 
     boxes = list(lg.box_scores())
