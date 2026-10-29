@@ -12,7 +12,7 @@ Every day, GitHub runs this planner against your ESPN league and publishes a fre
 - a **My players** tab with per-game averages (season, last 15, last 7, last season) you can filter and sort, and each player's last 10 games
 - an **Injury watch** tab that tracks injured stars (like Jimmy Butler) and tells you when to add them before anyone else
 
-It pulls rosters, stats (blending season and last 7/15 days), schedules, injury status, free agents, stats already earned this week and your adds used, all from ESPN.
+It pulls rosters, stats (blending season, last 7/15 days and recent minutes; see **Recent form** below), schedules, injury status, free agents, stats already earned this week and your adds used, all from ESPN.
 
 ## Setup (about 10 minutes, once)
 
@@ -122,6 +122,18 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 | `WHATIF_SIMS` | 600 | Simulations per add/drop pair in the What if picker. Lower it if runs get slow |
 | `NEXT_MATCHUP_END` | the Sunday after | Last day of next week's matchup, if it's longer than a week |
 | `WATCH_PLAYERS` | Jimmy Butler | Comma-separated injured players to track on the Injury watch tab |
+| `RECENT_FORM` | 0.5 | How much this week's projections lean on the last 7 and 15 days, from 0 (season only, the old behaviour) to 1 (recent games only) |
+| `PROJECTION_GAMES` | 3 | How many games' worth of trust ESPN's preseason projection gets. Lower means real games take over sooner |
+| `USAGE_BOOST` | none | Your own nudge for role changes the stats can't see yet, like `Jrue Holiday: 1.1, Ty Jerome: 0.9`. Scales that player's counting stats this week only |
+
+## Recent form
+This week's projection for each player blends his season average with his last 15 and last 7 days (2 to 1), weighted by `RECENT_FORM`, starting 3 games into the season. ESPN's preseason projection fades out as he plays more games.
+
+If his minutes over the last 7 days are at least 2 a game away from what that blend implies, his counting stats are scaled toward his new role, by up to 25% up or 20% down. His shooting percentages don't change. The page shows this next to his name, for example "Plan uses volume +8% for 35.0 min last 7 days vs 30.1 expected".
+
+The planner can't see why a role changed, like a teammate's injury or a new starter. When you know something it doesn't, set `USAGE_BOOST`. Names can be partial if they're unique (`holiday: 1.1`). Remove the boost once his real games reflect the change, or he'll be counted twice.
+
+Recent form and boosts only affect this week's projections. Deciding whether a regular is good enough to cut for good, and next week's setup, still use the steadier season-long numbers.
 
 ## Good to know
 - **The page is public.** Anyone with the address can see your rosters and plan. Your ESPN cookies stay private in GitHub secrets.
