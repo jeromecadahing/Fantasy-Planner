@@ -127,6 +127,11 @@ def load():
     for p in data["me"]["players"] + data["opp"]["players"] + data["fa"]:
         p["next_games"] = [bool(g) for g in nxt[p["sched"]]]
         p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
+    for k, t in enumerate(data["others"]):
+        for i, p in enumerate(t["players"]):
+            p["next_games"] = [bool(g) for g in nxt["ABCDEF"[(i + k + 1) % 6]]]
+            p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
+    data["next_opp"] = {"name": data["others"][0]["name"], "players": data["others"][0]["players"]}
     return data
 
 
