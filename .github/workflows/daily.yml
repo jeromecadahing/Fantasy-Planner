@@ -88,6 +88,9 @@ jobs:
           WHAT_IF: ${{ inputs.what_if || vars.WHAT_IF }}
           NEXT_MATCHUP_END: ${{ vars.NEXT_MATCHUP_END }}
           WATCH_PLAYERS: ${{ vars.WATCH_PLAYERS || 'Jimmy Butler' }}
+          RECENT_FORM: ${{ vars.RECENT_FORM }}
+          PROJECTION_GAMES: ${{ vars.PROJECTION_GAMES }}
+          USAGE_BOOST: ${{ vars.USAGE_BOOST }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
