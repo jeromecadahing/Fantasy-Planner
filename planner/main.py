@@ -6,7 +6,7 @@ import sys
 
 import requests
 
-from . import demo, extras, league, nextweek, report, sim
+from . import demo, extras, league, nextmatch, nextweek, report, sim
 from .config import Config
 
 
@@ -26,6 +26,7 @@ def main():
     plan = sim.build_plan(data, cfg)
     extras.advise(data, cfg, plan)
     plan["nextweek"] = nextweek.plan(data, cfg, plan)
+    plan["nextmatch"] = nextmatch.project(data, plan["slots"])
     plan["deadlines"] = extras.deadlines(data, plan, cfg)
     plan["league"] = league.table(data, cfg, plan, plan["slots"])
     page = os.environ.get("PAGE_URL", "")
@@ -37,7 +38,9 @@ def main():
     with open(os.path.join(args.out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump({"result": plan["result"], "picks": plan["picks"], "notes": plan["notes"],
                    "scenario": plan.get("scenario"), "deadlines": plan["deadlines"], "league": plan["league"],
-                   "nextweek": plan["nextweek"], "roster_fp": data.get("roster_fp"),
+                   "nextweek": plan["nextweek"],
+                   "nextmatch": {k: v for k, v in (plan.get("nextmatch") or {}).items() if k in ("name", "win", "cats", "catP")},
+                   "roster_fp": data.get("roster_fp"),
                    "injury_watch": [{k: x.get(k) for k in ("name", "team", "status", "owner", "ret", "verdict", "why")}
                                     for x in data.get("injury_watch") or []]}, f, indent=1)
 
