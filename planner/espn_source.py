@@ -543,6 +543,7 @@ def load(cfg):
         "roster_fp": fingerprint((p.playerId, p.lineupSlot == "IR") for p in me_team.roster),
         # Every NBA team's games on the last day of this matchup and on each day of next week.
         "team_sched": {abbr: {"last": bool(days) and days[-1]["sp"] in sps,
+                              "this": [d["sp"] in sps for d in days[today_index:]],
                               "next": [d["sp"] in sps for d in _CTX["next_days"]]}
                        for abbr, sps in team_games.items() if abbr},
     }
