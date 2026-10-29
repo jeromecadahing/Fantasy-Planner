@@ -245,7 +245,17 @@ def _nextmatch(plan, data):
             f'<p class="verdict">{verdict}</p>'
             f'<p class="dc" style="margin:-6px 0 12px">Both rosters as they stand today, before any moves. Roster games scheduled: '
             f'you {g_me}, them {g_opp}. Uses season-long numbers, so this week’s form and boosts don’t carry over.</p>'
-            f'<div class="tug">{_tug(nm)}</div>{sw}</section>')
+            f'<div class="tug">{_tug(nm)}</div>{sw}{_nextmatch_scn(plan)}</section>')
+
+
+def _nextmatch_scn(plan):
+    sc = plan.get("scenario") or {}
+    nx = sc.get("next") if sc.get("ok") else None
+    if not nx:
+        return ""
+    b, a = round(nx["before"]["win"] * 100), round(nx["after"]["win"] * 100)
+    return (f'<p class="dc" style="margin:10px 0 0">With your what-if (<code>{escape(sc["text"])}</code>): '
+            f'{b}% → {a}% to win next week. Details in the What if section on the This week tab.</p>')
 
 
 def _now_line(data):
@@ -416,8 +426,25 @@ def _scenario(sc):
           f'Expected categories {sc["before"]["cats"]:.1f} → {sc["after"]["cats"]:.1f}; '
           f'{"about the same number of" if abs(sd) < 0.5 else f"{sd:+.1f}"} starter games.</p>'
           + "".join(f'<p class="dc">{escape(n)}</p>' for n in sc["notes"])
-          + _cat_grid(sc["before"]["catP"], sc["after"]["catP"]) + "</div>")
+          + _cat_grid(sc["before"]["catP"], sc["after"]["catP"]) + _scenario_next(sc) + "</div>")
     return h
+
+
+def _scenario_next(sc):
+    """The same move's effect on next week's matchup."""
+    nx = sc.get("next")
+    if not nx:
+        return ""
+    b, a = round(nx["before"]["win"] * 100), round(nx["after"]["win"] * 100)
+    d = a - b
+    cls = "pos" if d > 0 else "neg" if d < 0 else "flat"
+    gb, ga = nx["before"]["games"][0], nx["after"]["games"][0]
+    return (f'<h3 style="margin-top:16px">Next week vs {escape(nx["name"])}</h3>'
+            f'<p class="lift" style="margin-top:4px"><span class="cd">{b}%</span> <span class="arrow">→</span> '
+            f'<span class="cd {cls}">{a}%</span> chance to win next week <span class="delta {cls}">{_signed(d, "%")}</span></p>'
+            f'<p>Expected categories {nx["before"]["cats"]:.1f} → {nx["after"]["cats"]:.1f}; '
+            f'roster games scheduled {gb} → {ga}. Season-long numbers, both rosters otherwise as they stand today.</p>'
+            + _cat_grid(nx["before"]["catP"], nx["after"]["catP"]))
 
 
 WI_JS = r"""(function(){
@@ -1188,6 +1215,9 @@ def summary(data, plan):
     sc = plan.get("scenario")
     if sc and sc.get("ok"):
         lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")
+        if sc.get("next"):
+            nx = sc["next"]
+            lines.append(f"  Next week vs {nx['name']}: {round(nx['before']['win'] * 100)}% -> {round(nx['after']['win'] * 100)}%")
     elif sc:
         lines.append("What-if couldn't run: " + " ".join(sc["errors"]))
     nm = plan.get("nextmatch")
