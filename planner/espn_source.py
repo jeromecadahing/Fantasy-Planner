@@ -466,6 +466,32 @@ def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, to
     return out, missing
 
 
+def _next_opp(lg, cfg, opp, others):
+    """Next matchup period's opponent from ESPN's schedule, with his roster as already loaded.
+
+    Returns None in a bye week, after the regular season, or if ESPN's schedule can't be read.
+    """
+    try:
+        team = next(t for t in lg.teams if t.team_id == cfg.team_id)
+        sched = list(team.schedule or [])
+        k = int(lg.currentMatchupPeriod)  # schedule is 0-based, so index k is the period after this one
+        if k >= len(sched):
+            return None
+        m = sched[k]
+        h, a = getattr(m, "home_team", None), getattr(m, "away_team", None)
+        hid, aid = getattr(h, "team_id", h), getattr(a, "team_id", a)
+        oid = aid if hid == cfg.team_id else hid
+        if not oid:
+            return None
+    except Exception as exc:
+        print(f"Couldn't read next week's opponent: {exc}")
+        return None
+    if oid == opp.get("id"):
+        return {"name": opp["name"], "players": opp["players"], "same": True}
+    o = next((t for t in others if t.get("id") == oid), None)
+    return {"name": o["name"], "players": o["players"]} if o else None
+
+
 def load(cfg):
     lg = _connect(cfg)
     sp_date, team_games, team_tips, team_opp = _game_dates(lg)
@@ -495,7 +521,7 @@ def load(cfg):
         players = [x for x in (_player(p, lg.year, days, today_index, team_games, ir=(p.lineupSlot == "IR"),
                                        team_tips=team_tips) for p in roster) if x]
         sofar, note = _sofar(stats, [p for p in players if not p["ir"]])
-        return {"name": team.team_name, "sofar": sofar, "players": players}, note
+        return {"name": team.team_name, "id": team.team_id, "sofar": sofar, "players": players}, note
 
     me, note = side(me_team, me_stats)
     opp, _ = side(opp_team, opp_stats)
@@ -516,6 +542,8 @@ def load(cfg):
             others.append(o)
         except Exception as exc:  # one odd roster shouldn't stop the whole plan
             print(f"Skipped {t.team_name} in the league projection: {exc}")
+
+    next_opp = _next_opp(lg, cfg, opp, others)
 
     fa_raw = _with_stats(lg, lg.free_agents(size=cfg.fa_pool))
     fa = [x for x in (_player(p, lg.year, days, today_index, team_games, team_tips=team_tips) for p in fa_raw) if x]
@@ -539,7 +567,7 @@ def load(cfg):
         "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(counts),
         "ir_slots": int(counts.get("13", 0) or 0), "ir_used": sum(1 for p in me_team.roster if p.lineupSlot == "IR"),
         "injury_watch": watch, "watch_missing": missing,
-        "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "next_days": _CTX["next_days"],
+        "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "next_opp": next_opp, "next_days": _CTX["next_days"],
         "roster_fp": fingerprint((p.playerId, p.lineupSlot == "IR") for p in me_team.roster),
         # Every NBA team's games on the last day of this matchup and on each day of next week.
         "team_sched": {abbr: {"last": bool(days) and days[-1]["sp"] in sps,
