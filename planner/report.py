@@ -175,6 +175,8 @@ table.sc th.sc-wk{text-align:center;font-size:.85rem;padding-bottom:2px}
 table.sc .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--you)}
 table.sc .dot.b2b{background:transparent;border:2.5px solid var(--opp);width:11px;height:11px}
 table.sc td.sc-out{color:var(--bad);font-weight:700}
+table.sc td.sc-none{background:repeating-linear-gradient(135deg,var(--field),var(--field) 4px,transparent 4px,transparent 8px)}
+table.sc th.sc-none{color:var(--muted);font-weight:500}
 table.sc td b{font-weight:700}
 .sub3{font:700 1.1rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:14px 0 4px}
 .xlist{margin:0;padding-left:1.1rem;display:grid;gap:3px;font-size:.93rem}
@@ -611,35 +613,89 @@ def _lock(plan):
 
 # ---------- Schedule: games, back-to-backs, Sunday-Monday ----------
 
+def _columns(data):
+    """Day columns for the rest of this week and all of next week, oldest first.
+
+    ESPN only lists days with NBA games, so a day without any (Election Day, say) would vanish.
+    Missing days between two listed ones come back as columns marked none=True, so the
+    calendar reads straight through. Each column keeps its index into days or next_days.
+    """
+    from datetime import date as _d
+    days, nd, ti = data["days"], data.get("next_days") or [], data["today_index"]
+    cols = [{"date": _d.fromisoformat(days[i]["date"]), "label": days[i]["label"], "week": 0, "i": i, "none": False}
+            for i in range(ti, len(days))]
+    cols += [{"date": _d.fromisoformat(d["date"]), "label": d["label"], "week": 1, "i": i, "none": False}
+             for i, d in enumerate(nd)]
+    out = []
+    for c in cols:
+        if out:
+            gap = out[-1]["date"] + timedelta(days=1)
+            while gap < c["date"]:
+                out.append({"date": gap, "label": gap.strftime("%a %b %-d"), "i": None, "none": True,
+                            "week": out[-1]["week"] if out[-1]["week"] == c["week"] else 1})
+                gap += timedelta(days=1)
+        out.append(c)
+    return out
+
+
 def _sched(p, data):
     """A player's remaining games this week and next week, with back-to-backs found from the dates.
 
     Games he's ruled out of (chance 0) are kept for display but not counted.
     """
-    from datetime import date as _d
-    days, nd, ti = data["days"], data.get("next_days") or [], data["today_index"]
-    cells = []
-    for i in range(ti, len(days)):
-        cells.append({"date": _d.fromisoformat(days[i]["date"]), "label": days[i]["label"], "week": 0,
-                      "game": bool(p["games"][i]), "ok": bool(p["games"][i]) and p["prob"][i] > 0})
     ng, npb = p.get("next_games") or [], p.get("next_prob") or []
-    for i, d in enumerate(nd):
-        g = bool(ng[i]) if i < len(ng) else False
-        cells.append({"date": _d.fromisoformat(d["date"]), "label": d["label"], "week": 1,
-                      "game": g, "ok": g and (npb[i] if i < len(npb) else 1) > 0})
+    cells = []
+    for col in _columns(data):
+        c = dict(col)
+        i = col["i"]
+        if col["none"]:
+            g = ok = False
+        elif col["week"] == 0:
+            g = bool(p["games"][i])
+            ok = g and p["prob"][i] > 0
+        else:
+            g = bool(ng[i]) if i < len(ng) else False
+            ok = g and (npb[i] if i < len(npb) else 1) > 0
+        c.update(game=g, ok=ok)
+        cells.append(c)
     by_date = {c["date"]: c for c in cells}
     b2b = 0
     for c in cells:
         prev = by_date.get(c["date"] - timedelta(days=1))
         c["b2b"] = bool(c["ok"] and prev and prev["ok"])
         b2b += c["b2b"]
-    last = [c for c in cells if c["week"] == 0]
-    first = [c for c in cells if c["week"] == 1]
+    last = [c for c in cells if c["week"] == 0 and not c["none"]]
+    first = [c for c in cells if c["week"] == 1 and not c["none"]]
     cross = bool(last and first and last[-1]["ok"] and first[0]["ok"]
                  and (first[0]["date"] - last[-1]["date"]).days == 1)
     return {"cells": cells, "this": sum(c["ok"] for c in cells if c["week"] == 0),
             "next": sum(c["ok"] for c in cells if c["week"] == 1), "b2b": b2b, "cross": cross,
             "b2b_next": sum(c["b2b"] for c in cells if c["week"] == 1)}
+
+
+def _day_heads(cols):
+    """Header cells for day columns, with a heavier line where next week starts."""
+    out = ""
+    for k, c in enumerate(cols):
+        cls = " sc-nx" if c["week"] == 1 and (k == 0 or cols[k - 1]["week"] == 0) else ""
+        if c["none"]:
+            out += (f'<th class="sc-d sc-none{cls}" title="No NBA games on {escape(c["label"])}">'
+                    f'<span>{escape(c["label"].split()[0])}</span><small>{c["date"].day}</small></th>')
+        else:
+            out += f'<th class="sc-d{cls}"><span>{escape(c["label"].split()[0])}</span><small>{c["date"].day}</small></th>'
+    return out
+
+
+def _week_head(cols, lead, tail):
+    """The 'Rest of this week | Next week' row over the day columns."""
+    n_this = sum(1 for c in cols if c["week"] == 0)
+    n_next = len(cols) - n_this
+    row = f"<tr>{lead}"
+    if n_this:
+        row += f'<th colspan="{n_this}" class="sc-wk">Rest of this week</th>'
+    if n_next:
+        row += f'<th colspan="{n_next}" class="sc-wk sc-nx">Next week</th>'
+    return row + f"{tail}</tr>"
 
 
 def _cross_names(data):
@@ -658,17 +714,10 @@ def _schedule_section(data):
                 "NBA schedule isn’t available yet.</p></section>")
     info = [(p, _sched(p, data)) for p in players]
     info.sort(key=lambda x: (x[0]["ir"], -x[1]["next"], -x[1]["this"], x[0]["name"]))
-    cells0 = info[0][1]["cells"] if info else []
-    n_this = sum(1 for c in cells0 if c["week"] == 0)
-    n_next = len(cells0) - n_this
+    cells0 = info[0][1]["cells"] if info else _columns(data)
     a, b = _cross_names(data) or ("Sun", "Mon")
-    head1 = (f'<tr><th></th><th colspan="{n_this}" class="sc-wk">Rest of this week</th>'
-             f'<th colspan="{n_next}" class="sc-wk sc-nx">Next week</th><th colspan="4"></th></tr>') if n_this else (
-             f'<tr><th></th><th colspan="{n_next}" class="sc-wk sc-nx">Next week</th><th colspan="4"></th></tr>')
-    head2 = "<tr><th>Player</th>"
-    for i, c in enumerate(cells0):
-        cls = " sc-nx" if c["week"] == 1 and (i == 0 or cells0[i - 1]["week"] == 0) else ""
-        head2 += f'<th class="sc-d{cls}"><span>{escape(c["label"].split()[0])}</span><small>{c["date"].day}</small></th>'
+    head1 = _week_head(cells0, "<th></th>", '<th colspan="4"></th>')
+    head2 = "<tr><th>Player</th>" + _day_heads(cells0)
     head2 += (f'<th>This wk</th><th>Next wk</th><th title="Back-to-back pairs, rest of this week and next week">B2B</th>'
               f'<th title="Plays the last day of this matchup and the first day of next week">{escape(a)}+{escape(b)}</th></tr>')
     rows = ""
@@ -676,7 +725,9 @@ def _schedule_section(data):
         tds = ""
         for i, c in enumerate(x["cells"]):
             cls = "sc-c" + (" sc-nx" if c["week"] == 1 and (i == 0 or x["cells"][i - 1]["week"] == 0) else "")
-            if c["game"] and not c["ok"]:
+            if c["none"]:
+                tds += f'<td class="{cls} sc-none" title="No NBA games"></td>'
+            elif c["game"] and not c["ok"]:
                 tds += f'<td class="{cls} sc-out" title="Game, but ruled out">×</td>'
             elif c["b2b"]:
                 tds += f'<td class="{cls}" title="Second night of a back-to-back"><i class="dot b2b"></i></td>'
@@ -693,7 +744,7 @@ def _schedule_section(data):
             f'<strong>{escape(_join_words(both))}</strong>.</p>' if both else
             f'<p class="lift" style="font-size:1rem">None of your players has games on both {escape(a)} and {escape(b)}.</p>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Schedule</h2>{line}'
-            f'<p class="hint">Ringed dot: second night of a back-to-back. ×: ruled out.</p>'
+            f'<p class="hint">Ringed dot: second night of a back-to-back. ×: ruled out. Grey column: no NBA games that day.</p>'
             f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{rows}</tbody></table></div></section>')
 
 
@@ -701,42 +752,62 @@ def _teams_section(data):
     ts, nd = data.get("team_sched") or {}, data.get("next_days") or []
     if not ts or not nd:
         return ""
-    from datetime import date as _d
-    dates = [_d.fromisoformat(d["date"]) for d in nd]
+    cols = _columns(data)
     names = _cross_names(data) or ("Sun", "Mon")
     mine = {p["team"] for p in data["me"]["players"] if not p["ir"]}
+    ti = data["today_index"]
+    last_date = cols and next((c["date"] for c in reversed(cols) if c["week"] == 0 and not c["none"]), None)
     rows = []
     for team, x in ts.items():
-        g = x["next"]
-        pairs = [f'{nd[i - 1]["label"].split()[0]}–{nd[i]["label"].split()[0]}'
-                 for i in range(1, len(g)) if g[i] and g[i - 1] and (dates[i] - dates[i - 1]).days == 1]
-        cross = bool(x.get("last") and g and g[0] and dates and data["days"]
-                     and (dates[0] - _d.fromisoformat(data["days"][-1]["date"])).days == 1)
-        rows.append({"team": team, "n": sum(g), "g": g, "pairs": pairs, "cross": cross})
-    rows.sort(key=lambda r: (-len(r["pairs"]), -r["n"], r["team"]))
+        this, nxt = x.get("this") or [], x["next"]
+        g = []
+        for c in cols:
+            if c["none"]:
+                g.append(False)
+            elif c["week"] == 0:
+                k = c["i"] - ti
+                g.append(bool(this[k]) if 0 <= k < len(this) else False)
+            else:
+                g.append(bool(nxt[c["i"]]) if c["i"] < len(nxt) else False)
+        second = [k > 0 and g[k] and g[k - 1] for k in range(len(g))]  # columns are consecutive days
+        pairs = [f'{cols[k - 1]["label"].split()[0]}–{cols[k]["label"].split()[0]}'
+                 for k in range(len(g)) if second[k] and cols[k]["week"] == 1 and cols[k - 1]["week"] == 1]
+        first_next = next((k for k, c in enumerate(cols) if c["week"] == 1 and not c["none"]), None)
+        cross = bool(x.get("last") and first_next is not None and g[first_next] and last_date
+                     and (cols[first_next]["date"] - last_date).days == 1)
+        rows.append({"team": team, "g": g, "second": second, "pairs": pairs, "cross": cross,
+                     "this": sum(v for v, c in zip(g, cols) if c["week"] == 0),
+                     "n": sum(v for v, c in zip(g, cols) if c["week"] == 1)})
+    rows.sort(key=lambda r: (-len(r["pairs"]), -r["n"], -r["this"], r["team"]))
     with_b2b = [r for r in rows if r["pairs"]]
-    head = "".join(f'<th class="sc-d"><span>{escape(d["label"].split()[0])}</span><small>{dt.day}</small></th>'
-                   for d, dt in zip(nd, dates))
     body = ""
     for r in rows:
         cells = ""
-        for i, g in enumerate(r["g"]):
-            second = i > 0 and g and r["g"][i - 1] and (dates[i] - dates[i - 1]).days == 1
-            cells += ('<td class="sc-c"><i class="dot b2b"></i></td>' if second else
-                      '<td class="sc-c"><i class="dot"></i></td>' if g else '<td class="sc-c"></td>')
+        for k, c in enumerate(cols):
+            cls = "sc-c" + (" sc-nx" if c["week"] == 1 and (k == 0 or cols[k - 1]["week"] == 0) else "")
+            if c["none"]:
+                cells += f'<td class="{cls} sc-none" title="No NBA games"></td>'
+            elif r["second"][k]:
+                cells += f'<td class="{cls}"><i class="dot b2b"></i></td>'
+            elif r["g"][k]:
+                cells += f'<td class="{cls}"><i class="dot"></i></td>'
+            else:
+                cells += f'<td class="{cls}"></td>'
         you = ' <span class="dc">(yours)</span>' if r["team"] in mine else ""
-        body += (f'<tr><td>{escape(r["team"])}{you}</td>{cells}<td><b>{r["n"]}</b></td>'
+        body += (f'<tr><td>{escape(r["team"])}{you}</td>{cells}<td>{r["this"]}</td><td><b>{r["n"]}</b></td>'
                  f'<td style="text-align:left">{escape(", ".join(r["pairs"]))}</td><td>{"✓" if r["cross"] else ""}</td></tr>')
     if with_b2b:
         line = (f'<p class="lift" style="font-size:1rem">{len(with_b2b)} of {len(rows)} teams play a back-to-back next week. '
                 f'They’re listed first.</p>')
     else:
         line = '<p class="lift" style="font-size:1rem">No team plays back-to-back next week.</p>'
-    return (f'<section class="panel" style="margin-bottom:18px"><h2>NBA teams next week</h2>{line}'
-            f'<p class="hint">Ringed dot: second night of a back-to-back.</p>'
-            f'<div class="scroll"><table class="st sc"><thead><tr>'
-            f'<th>Team</th>{head}<th>Games</th><th style="text-align:left">Back-to-backs</th>'
-            f'<th>{escape(names[0])}+{escape(names[1])}</th></tr></thead><tbody>{body}</tbody></table></div></section>')
+    head1 = _week_head(cols, "<th></th>", '<th colspan="4"></th>')
+    head2 = (f'<tr><th>Team</th>{_day_heads(cols)}<th>This wk</th><th>Next wk</th>'
+             f'<th style="text-align:left">Back-to-backs next week</th><th>{escape(names[0])}+{escape(names[1])}</th></tr>')
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>NBA teams, this week and next</h2>{line}'
+            f'<p class="hint">Ringed dot: second night of a back-to-back. Grey column: no NBA games that day. '
+            f'Scroll sideways for more days.</p>'
+            f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{body}</tbody></table></div></section>')
 
 
 # ---------- My players ----------
