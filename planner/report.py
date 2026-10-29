@@ -33,6 +33,7 @@ h2{font:700 1.45rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;margin:0 0 
 .tug{display:grid;gap:5px}.row{display:grid;grid-template-columns:4rem 1fr 3.2rem 1fr 4rem;align-items:center;gap:8px}
 .v{font:600 1.05rem/1 "Barlow Condensed","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}
 .v.l{text-align:right;color:var(--you)}.v.r{color:var(--opp)}
+.v small{display:block;font:500 .72rem/1.3 Barlow,sans-serif;color:var(--muted);margin-top:2px}
 .cat{text-align:center;font:700 1.05rem/1 "Barlow Condensed","Arial Narrow",sans-serif}
 .bar{height:24px;background:var(--field);border-radius:4px;position:relative;overflow:hidden}
 .bar i{position:absolute;top:0;bottom:0}.bar.y i{right:0;background:var(--you)}.bar.o i{left:0;background:var(--opp)}
@@ -198,7 +199,81 @@ def _pct(x):
     return f"{round(x * 100)}%"
 
 
-def _tug(res):
+def _now_val(c, tot):
+    _, idx, _ = CATS[c]
+    if isinstance(idx, tuple) and not tot[idx[1]]:
+        return "–"
+    return fmt_cat(c, tot)
+
+
+def _board_now(data):
+    """Today's actual totals for both sides, for the scoreboard, or None before any games count."""
+    if not _now_line(data):
+        return None
+    return data["me"]["sofar"], data["opp"]["sofar"]
+
+
+def _now_html(data):
+    x = _now_line(data)
+    if not x:
+        return ""
+    lead, trail, tie = x
+    tied = f", {tie} tied" if tie else ""
+    return (f'<p class="dc" style="margin:0 0 10px">Right now you lead {lead} categor{"y" if lead == 1 else "ies"} '
+            f'and trail {trail}{tied}. Big numbers are projected finals; small ones are the actual totals so far.</p>')
+
+
+def _nextmatch(plan, data):
+    nm = plan.get("nextmatch")
+    if not nm:
+        why = ("ESPN’s schedule didn’t name your next opponent (a bye, the playoffs, or the season’s end)."
+               if data.get("next_days") else "Next week’s NBA schedule isn’t available yet.")
+        return f'<section class="panel" style="margin-bottom:18px"><h2>Next matchup</h2><p class="empty">{why}</p></section>'
+    me, opp = data["me"]["name"], nm["name"]
+    win = round(nm["win"] * 100)
+    again = " again" if nm.get("same") else ""
+    verdict = (f"{win}% chance you win next week against {escape(opp)}{again}."
+               + ("" if win >= 50 else f" {escape(opp)} would be the favorite."))
+    g_me, g_opp = nm.get("games") or (0, 0)
+    swing = [CATS[i][0] for i in range(9) if 0.3 <= nm["catP"][i] <= 0.7]
+    sw = (f'<p class="dc" style="margin:8px 0 0">Closest categories: {escape(", ".join(swing))}. '
+          f'Pickups that help there are worth the most next week.</p>' if swing else "")
+    return (f'<section class="board"><h2 style="margin-top:0">Next matchup</h2><div class="score">'
+            f'<div class="side you"><span class="team">{escape(me)}</span><span class="big">{nm["cats"]:.1f}</span></div>'
+            f'<div class="mid">categories<br>won</div>'
+            f'<div class="side opp"><span class="team">{escape(opp)}</span><span class="big">{9 - nm["cats"]:.1f}</span></div></div>'
+            f'<p class="verdict">{verdict}</p>'
+            f'<p class="dc" style="margin:-6px 0 12px">Both rosters as they stand today, before any moves. Roster games scheduled: '
+            f'you {g_me}, them {g_opp}. Uses season-long numbers, so this week’s form and boosts don’t carry over.</p>'
+            f'<div class="tug">{_tug(nm)}</div>{sw}</section>')
+
+
+def _now_line(data):
+    """Who leads each category on the actual totals so far, or None before any games count."""
+    me, op = data["me"].get("sofar") or [], data["opp"].get("sofar") or []
+    if len(me) < 11 or len(op) < 11 or not (any(me) or any(op)):
+        return None
+    lead = trail = tie = 0
+    for c, (_, idx, low) in enumerate(CATS):
+        if isinstance(idx, tuple):
+            a = me[idx[0]] / me[idx[1]] if me[idx[1]] else None
+            b = op[idx[0]] / op[idx[1]] if op[idx[1]] else None
+            if a is None or b is None:
+                tie += 1
+                continue
+        else:
+            a, b = me[idx], op[idx]
+        if abs(a - b) < 1e-9:
+            tie += 1
+        elif (a < b) == low:
+            lead += 1
+        else:
+            trail += 1
+    return lead, trail, tie
+
+
+def _tug(res, now=None):
+    """One row per category: projected final totals and your chance; with now, today's actual totals too."""
     rows = []
     for c, (label, _, _) in enumerate(CATS):
         p = res["catP"][c]
@@ -207,10 +282,14 @@ def _tug(res):
               else f'<b style="right:calc({y:.1f}% + 6px);color:var(--you)">{_pct(p)}</b>')
         ol = (f'<b style="left:6px;color:var(--on-opp)">{_pct(1 - p)}</b>' if o >= 22
               else f'<b style="left:calc({o:.1f}% + 6px);color:var(--opp)">{_pct(1 - p)}</b>')
-        rows.append(f'<div class="row"><span class="v l">{fmt_cat(c, res["mean"])}</span>'
+        nl = nr = ""
+        if now:
+            nl = f'<small title="Actual total so far">now {_now_val(c, now[0])}</small>'
+            nr = f'<small title="Actual total so far">now {_now_val(c, now[1])}</small>'
+        rows.append(f'<div class="row"><span class="v l">{fmt_cat(c, res["mean"])}{nl}</span>'
                     f'<div class="bar y"><i style="width:{y:.1f}%"></i>{yl}</div><span class="cat">{label}</span>'
                     f'<div class="bar o"><i style="width:{o:.1f}%"></i>{ol}</div>'
-                    f'<span class="v r">{fmt_cat(c, res["opp_mean"])}</span></div>')
+                    f'<span class="v r">{fmt_cat(c, res["opp_mean"])}{nr}</span></div>')
     return "".join(rows)
 
 
@@ -1066,7 +1145,7 @@ def render(data, plan):
 <div class="side you"><span class="team">{escape(me)}</span><span class="big">{res["cats"]:.1f}</span></div>
 <div class="mid">categories<br>won</div>
 <div class="side opp"><span class="team">{escape(opp)}</span><span class="big">{9 - res["cats"]:.1f}</span></div></div>
-<p class="verdict">{verdict}</p><div class="tug">{_tug(res)}</div></section>
+<p class="verdict">{verdict}</p>{_now_html(data)}<div class="tug">{_tug(res, _board_now(data))}</div></section>
 <div class="plan">
 <section class="panel"><h2>Streaming plan</h2>{_stream(plan)}
 <details class="more"><summary>Other pickups right now</summary>{_picks(plan)}</details></section>
@@ -1077,6 +1156,7 @@ def render(data, plan):
 <section class="panel"><h2>What if…</h2>{_whatif(plan)}</section>
 </div>
 <div id="tab-next" role="tabpanel" aria-label="Next week" hidden>
+{_nextmatch(plan, data)}
 <section class="panel" style="margin-bottom:18px"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
 {_schedule_section(data)}{_teams_section(data)}
 </div>
@@ -1110,6 +1190,10 @@ def summary(data, plan):
         lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")
     elif sc:
         lines.append("What-if couldn't run: " + " ".join(sc["errors"]))
+    nm = plan.get("nextmatch")
+    if nm:
+        lines.append(f"Next week vs {nm['name']}: projected {nm['cats']:.1f} to {9 - nm['cats']:.1f}, "
+                     f"{round(nm['win'] * 100)}% to win.")
     nw = plan.get("nextweek") or {}
     nw_lines = [f"{'TODAY ' if nw.get('today') else ''}{nw['day']}, for next week: add {m['add']}"
                 + (f", drop {m['drop']}" if m["drop"] else "")
