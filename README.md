@@ -81,6 +81,7 @@ The **Injury alerts** workflow checks ESPN every 30 minutes and posts to Discord
 - his status changes (🟡 Out → Day-to-day, 🟢 back to healthy, 🔴 worse)
 - ESPN gives or moves a return date
 - ESPN posts a new news blurb about him
+- another outlet's feed runs a new story naming him (see **News from other outlets**)
 - someone in your league picks him up or drops him, or he goes on waivers
 - his ownership across ESPN leagues jumps 5 points or more (other managers are starting to stash him)
 
@@ -89,6 +90,16 @@ When it's worth acting, it adds a line like "Add him now and put him on IR befor
 It tracks your `WATCH_PLAYERS` plus everyone on the page's Injury watch tab, and keeps following a player until he's healthy. It needs the `DISCORD_WEBHOOK_URL` secret. The first run posts the list it's watching; after that it stays quiet unless something changes.
 
 It's only as fast as ESPN. Return news usually breaks first from NBA reporters on X, and ESPN's player feed follows within minutes to hours. You won't beat a reporter's post, but you'll hear well before anyone waiting for the morning update. To check hourly instead of every 30 minutes, change the `cron` line in `.github/workflows/injury_alert.yml` to `"7 * * * *"`.
+
+## News from other outlets
+Besides ESPN's own player news, the planner reads free NBA news feeds from RotoWire, CBS Sports, Yahoo Sports, ESPN's headlines and Hoops Rumors. Any story from the last 4 days that names a player on your Injury watch tab by his full name is shown on his card, with the outlet, a link, and a tag:
+
+- **Return signal**: the story says he's cleared, upgraded, practising, targeting a date, on a G League rehab stint, and so on
+- **Setback**: the story says setback, ruled out, surgery, indefinitely, and so on
+
+The newest tagged story counts toward the advice. A return report can move a free agent to **Add now** before ESPN's status catches up, and a setback adds a warning to read it before you add him. The injury alerts post each new story once, with its link.
+
+The tags come from keywords, not from reading the article, so they're a nudge. Open the story before you act. Feeds that fail or change are skipped without stopping the run (the log lists them). To choose your own feeds, set the `NEWS_FEEDS` variable to comma-separated `Name|url` pairs, like `RotoWire|https://www.rotowire.com/rss/news.php?sport=NBA, Hoops Rumors|https://www.hoopsrumors.com/feed`. Set it to `none` to turn outside news off.
 
 ## Set up next week
 Adds reset when a new matchup starts, so any you still have on the last day are free. The **Set up next week** panel (under the streaming plan) uses them: it finds the free agents who add the most starter games to next week's lineup, counting only games on days you'd have room to start them, weighted by how good they are. It suggests who to drop: streamers from this week first, and a regular only for someone at least as good over the season. If the player to drop still has a game on the last day, it tells you to wait until that game ends. These moves also show in the deadline banner and Discord on the last day.
@@ -140,6 +151,7 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 | `RECENT_FORM` | 0.5 | How much this week's projections lean on the last 7 and 15 days, from 0 (season only, the old behaviour) to 1 (recent games only) |
 | `PROJECTION_GAMES` | 3 | How many games' worth of trust ESPN's preseason projection gets. Lower means real games take over sooner |
 | `USAGE_BOOST` | none | Your own nudge for role changes the stats can't see yet, like `Jrue Holiday: 1.1, Ty Jerome: 0.9`. Scales that player's counting stats this week only |
+| `NEWS_FEEDS` | 5 free feeds | Outside news feeds as `Name\|url` pairs, or `none`. See **News from other outlets** |
 
 ## Recent form
 This week's projection for each player blends his season average with his last 15 and last 7 days (2 to 1), weighted by `RECENT_FORM`, starting 3 games into the season. ESPN's preseason projection fades out as he plays more games.
