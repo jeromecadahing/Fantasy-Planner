@@ -91,6 +91,7 @@ jobs:
           RECENT_FORM: ${{ vars.RECENT_FORM }}
           PROJECTION_GAMES: ${{ vars.PROJECTION_GAMES }}
           USAGE_BOOST: ${{ vars.USAGE_BOOST }}
+          NEWS_FEEDS: ${{ vars.NEWS_FEEDS }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
