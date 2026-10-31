@@ -461,8 +461,13 @@ def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, to
                  key=lambda x: -value(x["s"], EQUAL))
     keep_fa = {id(x) for x in [f for f in fas if value(f["s"], EQUAL) >= bar * 0.9][:8]}
     out = [x for x in out if x["mine"] or x["watch"] or id(x) in keep_fa]
+    from . import feeds
+    outside = feeds.fetch_all(feeds.parse_config(cfg.news_feeds)) if out else []
     for x in out:
-        x["news"] = cards.news(lg, x["id"])
+        espn = [{**n, "source": "ESPN", "link": "", "signal": feeds.signal(f"{n['headline']}. {n['story']}")}
+                for n in cards.news(lg, x["id"])]
+        x["news"] = sorted(espn + feeds.for_player(outside, x["name"]),
+                           key=lambda n: n.get("published") or "", reverse=True)[:5]
     return out, missing
 
 

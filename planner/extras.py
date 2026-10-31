@@ -65,6 +65,24 @@ def deadlines(data, plan, cfg):
     return out
 
 
+def latest_signal(news, today, days=4):
+    """The newest report from the last few days that points to a return or a setback, or None."""
+    for n in news or []:
+        if not n.get("signal"):
+            continue
+        try:
+            age = (today - date.fromisoformat((n.get("published") or "")[:10])).days
+        except ValueError:
+            continue
+        if 0 <= age <= days:
+            return n
+    return None
+
+
+def _cite(n):
+    return f"{n.get('source') or 'ESPN'}: “{n['headline']}”"
+
+
 def _today():
     return datetime.now(ET).date()
 
@@ -90,6 +108,9 @@ def advise(data, cfg, plan):
         x["days_out"] = (ret - today).days if ret else None
         text = " ".join((n["headline"] + " " + n["story"]).lower() for n in x.get("news") or [])
         long_term = any(k in text for k in LONG_TERM)
+        report = latest_signal(x.get("news"), today)
+        back_news = report if report and report["signal"] == "back" else None
+        bad_news = report if report and report["signal"] == "setback" else None
         rising = (x.get("own_change") or 0) >= 3
         soon_status = x["status"] in ("Day-to-day", "Questionable", "Probable")
         due_soon = x["days_out"] is not None and x["days_out"] <= 14
@@ -99,6 +120,10 @@ def advise(data, cfg, plan):
             verdict, tone, bucket = "On your team", "you", 4
             if x["status"] == "Out" and ir_free:
                 why.append("He’s listed Out, so he can go in your IR slot. That frees a bench spot for a streamer.")
+            if back_news:
+                why.append(f"Latest report points to a return ({_cite(back_news)}). Be ready to move him off IR.")
+            elif bad_news:
+                why.append(f"Latest report is bad news ({_cite(bad_news)}).")
             if ret:
                 why.append(f"ESPN expects him back around {ret.strftime('%a %b %-d')}. Plan to activate him then.")
             elif long_term:
@@ -117,12 +142,15 @@ def advise(data, cfg, plan):
             why.append(f"Only {x['games_left']} NBA games left after he’s due back. Not worth a roster spot.")
         else:
             worth = f"Healthy, he’d be your #{x['rank']} player ({x['source']})."
-            if soon_status or due_soon or rising:
+            if soon_status or due_soon or rising or back_news:
                 verdict, tone, bucket = ("Claim now" if claim else "Add now"), "pos", 0
                 if soon_status:
                     why.append(f"He’s {x['status'].lower()}, so he’s close to playing and others will notice.")
                 elif due_soon:
                     why.append(f"He’s due back in {x['days_out']} day{'s' if x['days_out'] != 1 else ''}.")
+                if back_news and not soon_status:
+                    why.append(f"A recent report points to a return before ESPN’s status has caught up "
+                               f"({_cite(back_news)}). Read it, then move before others do.")
                 if rising:
                     why.append(f"Ownership is up {x['own_change']:.0f} points: managers are starting to grab him.")
                 why.append(worth)
@@ -144,10 +172,14 @@ def advise(data, cfg, plan):
                 why.append(worth)
             else:
                 verdict, bucket = "Watch", 2
+                if bad_news:
+                    why.append(f"Latest report is bad news ({_cite(bad_news)}).")
                 why.append(("News points to a long absence" if long_term else "ESPN has no return date yet")
                            + ", so adding him now ties up a roster spot for an unknown stretch. Add him the moment "
                            "he gets a return date, is upgraded, or his ownership starts climbing.")
                 why.append(worth)
+            if bad_news and bucket <= 1:
+                why.append(f"Heads up, the latest report is bad news ({_cite(bad_news)}). Read it before you add him.")
             if bucket <= 1 and drop and not (verdict.endswith("IR")):
                 why.append(f"If you need the spot, {drop} is your weakest player to cut.")
             if claim and bucket <= 1:
@@ -159,6 +191,7 @@ def advise(data, cfg, plan):
         x["verdict"], x["why"], x["tone"], x["bucket"] = verdict, why, tone, bucket
         x["add_by"] = add_by.isoformat() if add_by else None
         x["long_term"] = long_term
+        x["report"] = report
     watch.sort(key=lambda x: (x["bucket"], x["rank"] or 99))
     return watch
 

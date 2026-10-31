@@ -5,6 +5,7 @@ on the previous run. It alerts when:
   - his injury status changes (Out -> Day-to-day -> Healthy, or worse)
   - ESPN gives or moves a return date
   - ESPN posts a new news blurb about him
+  - another outlet's feed (RotoWire, CBS, Yahoo...) runs a new story naming him (see feeds.py)
   - someone in your league picks him up, drops him, or he goes on waivers
   - his ownership across ESPN leagues jumps (other managers are starting to stash him)
 
@@ -23,10 +24,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from . import cards
+from . import cards, feeds
 from .config import Config
 
 STATE_FILE = Path(os.environ.get("WATCH_STATE", ".watch-state/watch.json"))
+SEEN_FILE = STATE_FILE.with_name("seen.json")  # story links already posted
 OWN_JUMP = 5.0  # alert when ESPN-wide ownership rises this many points since the last alert
 DISCORD_LIMIT = 1900
 
@@ -125,6 +127,10 @@ def changes(old, new):
             lines.append(f"⏳ **{name}** is on waivers (dropped by {old['owner']})")
         else:
             lines.append(f"🚨 **{new['owner']}** picked up **{name}**")
+    for it in new.get("stories") or []:
+        tag = {"back": " · Return signal", "setback": " · Setback"}.get(it["signal"], "")
+        link = f"\n<{it['link']}>" if it.get("link") else ""
+        lines.append(f"🗞️ **{name}** ({it['source']}{tag}): {it['headline']}{link}")
     base = old.get("own_base", old.get("own"))
     if new["own"] is not None and base is not None and new["own"] - base >= OWN_JUMP:
         lines.append(f"📈 **{name}**: now rostered in {new['own']:.0f}% of ESPN leagues, "
@@ -138,6 +144,11 @@ def advice(old, new):
               or (new["ret"] and new["ret"] != old["ret"] and (not old["ret"] or new["ret"] < old["ret"])))
     base = old.get("own_base", old.get("own"))
     rising = new["own"] is not None and base is not None and new["own"] - base >= OWN_JUMP
+    back_story = next((it for it in new.get("stories") or [] if it["signal"] == "back"), None)
+    if back_story and new["owner"] in ("Free agent", "On waivers") and not (better or rising):
+        verb = "claim" if new["owner"] == "On waivers" else "add"
+        return (f"→ {back_story['source']} reports a return before ESPN has updated. Read it; if it holds up, "
+                f"{verb} him now{' and put him on IR' if new['status'] in ('Out', 'Injured') else ''}.")
     if new["owner"] in ("Free agent", "On waivers") and (better or rising or old["owner"] != new["owner"]):
         verb = "Claim" if new["owner"] == "On waivers" else "Add"
         where = " and put him on IR" if new["status"] in ("Out", "Injured") else ""
@@ -228,6 +239,23 @@ def main():
         print("ESPN returned no player cards; keeping the old state.")
         return
 
+    # Stories from other outlets: only links we haven't posted before. On the first run, everything
+    # already out there is just recorded, so you aren't flooded with old news.
+    seen_list = []
+    if SEEN_FILE.exists():
+        try:
+            seen_list = list(json.loads(SEEN_FILE.read_text()))
+        except ValueError:
+            pass
+    seen = set(seen_list)
+    items = feeds.fetch_all(feeds.parse_config(cfg.news_feeds))
+    fresh_links = []
+    for p in new_state.values():
+        stories = [it for it in feeds.for_player(items, p["name"], limit=5)
+                   if (it["link"] or it["headline"]) not in seen]
+        fresh_links += [it["link"] or it["headline"] for it in stories]
+        p["stories"] = [] if first_run else stories
+
     text = build_message(old_state, new_state, first_run, missing)
     page = os.environ.get("PAGE_URL", "").strip()
     if text and page and not first_run:
@@ -239,8 +267,11 @@ def main():
         except Exception as exc:
             print(f"Couldn't post to Discord ({exc}); will retry these changes next run.")
             return  # don't save, so the same changes are sent next time
+    for p in new_state.values():
+        p.pop("stories", None)  # posted now; the seen list stops them repeating
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(carry_forward(old_state, new_state), indent=1))
+    SEEN_FILE.write_text(json.dumps((seen_list + list(dict.fromkeys(fresh_links)))[-1000:]))
 
 
 if __name__ == "__main__":

@@ -141,6 +141,10 @@ table.st tr.ir td{color:var(--muted)}
 .line span{font:600 .88rem/1 "Barlow Condensed","Arial Narrow",sans-serif;padding:4px 7px;border-radius:5px;background:var(--field);font-variant-numeric:tabular-nums}
 .news{border-top:1px solid var(--rule);margin-top:6px;padding-top:6px;font-size:.9rem}
 .news p{margin:2px 0 6px}.news .dc{display:block}
+.nt{display:inline-block;font-size:.72rem;font-weight:600;padding:1px 6px;border-radius:9px;margin-right:6px;vertical-align:1px}
+.nt-back{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+.nt-bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.news a{color:inherit}
 .order{margin:0 0 14px;padding-left:1.4rem;display:grid;gap:6px}
 .order li::marker{font:700 1.05rem "Barlow Condensed","Arial Narrow",sans-serif;color:var(--you)}
 .pf{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 12px}.pf .seg{margin:0}
@@ -1038,6 +1042,21 @@ def _nice_date(iso):
         return iso or ""
 
 
+def _news_item(n):
+    """One story on the Injuries tab: date and outlet, a tag if it points to a return or a setback, a link."""
+    tag = {"back": '<span class="nt nt-back">Return signal</span>',
+           "setback": '<span class="nt nt-bad">Setback</span>'}.get(n.get("signal"), "")
+    src = n.get("source") or ""
+    head = escape(n["headline"])
+    link = n.get("link") or ""
+    if link.startswith(("https://", "http://")):
+        head = f'<a href="{escape(link)}" target="_blank" rel="noopener">{head}</a>'
+    story = n.get("story") or ""
+    return (f'<p><span class="dc">{escape(_nice_date(n.get("published") or ""))}'
+            f'{" · " + escape(src) if src else ""}</span>{tag}<strong>{head}</strong>'
+            f'{(" " + escape(story)) if story and story != n["headline"] else ""}</p>')
+
+
 def _injury_tab(data):
     watch = data.get("injury_watch") or []
     help_ = ('<p class="hint" style="margin-top:14px">Track more players by adding names to the <code>WATCH_PLAYERS</code> '
@@ -1070,9 +1089,7 @@ def _injury_tab(data):
             ch = x.get("own_change")
             facts.append(f'<span>Rostered <b>{x["own"]:.0f}%</b>'
                          + (f' ({"+" if ch > 0 else ""}{ch:.1f})' if ch else "") + "</span>")
-        news = "".join(f'<p><span class="dc">{escape(_nice_date(n["published"]))}</span><strong>{escape(n["headline"])}</strong>'
-                       f'{(" " + escape(n["story"])) if n["story"] and n["story"] != n["headline"] else ""}</p>'
-                       for n in (x.get("news") or [])[:2])
+        news = "".join(_news_item(n) for n in (x.get("news") or [])[:3])
         cls = {"pos": " t-pos", "warn": " t-warn", "you": " t-you"}.get(x["tone"], "")
         cards_ += (f'<article class="ic{cls}"><div class="ih"><strong>{escape(x["name"])} <span class="dc">{escape(x["team"])}'
                    f'{", watch list" if x["watch"] else ""}</span></strong><span class="vd{cls}">{escape(x["verdict"])}</span></div>'

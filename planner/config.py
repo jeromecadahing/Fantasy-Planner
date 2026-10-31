@@ -74,6 +74,7 @@ class Config:
     recent_form: float = 0.5
     projection_games: int = 3
     usage_boost: tuple = ()
+    news_feeds: str = ""
 
     @classmethod
     def from_env(cls):
@@ -103,5 +104,6 @@ class Config:
             recent_form=_float("RECENT_FORM", 0.5, 0.0, 1.0),
             projection_games=_int("PROJECTION_GAMES", 3),
             usage_boost=_boosts(_env("USAGE_BOOST")),
+            news_feeds=_env("NEWS_FEEDS"),
             watch_players=tuple(n.strip() for n in _env("WATCH_PLAYERS").split(",") if n.strip()),
         )
