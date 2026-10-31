@@ -44,6 +44,7 @@ jobs:
           YEAR: ${{ vars.YEAR }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCH_PLAYERS: ${{ vars.WATCH_PLAYERS || 'Jimmy Butler' }}
+          NEWS_FEEDS: ${{ vars.NEWS_FEEDS }}
           PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
       - uses: actions/cache/save@v4
         if: always()
