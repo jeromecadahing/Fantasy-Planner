@@ -1,0 +1,52 @@
+name: Injury alerts
+
+# Every 30 minutes, checks ESPN for changes to the injured players you're tracking (WATCH_PLAYERS plus
+# the Injury Watch tab) and posts any change to Discord: status, return date, new ESPN news, someone
+# picking him up, or a jump in ownership. It stays quiet when nothing has changed.
+# Does nothing unless the DISCORD_WEBHOOK_URL secret is set.
+
+on:
+  schedule:
+    # Times are UTC. Minutes 7 and 37 avoid GitHub's busy top of the hour.
+    # To check hourly instead, change this to "7 * * * *".
+    - cron: "7,37 * * * *"
+  workflow_dispatch:        # "Run workflow" to check right now
+
+permissions:
+  contents: read
+
+concurrency:
+  group: injury-alerts
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # What each player looked like on the last run, so only real changes are posted.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .watch-state
+          key: watch-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: watch-state-
+      - run: python -m planner.watchalert
+        env:
+          LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          SWID: ${{ secrets.SWID }}
+          YEAR: ${{ vars.YEAR }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WATCH_PLAYERS: ${{ vars.WATCH_PLAYERS || 'Jimmy Butler' }}
+          PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .watch-state
+          key: watch-state-${{ github.run_id }}-${{ github.run_attempt }}
