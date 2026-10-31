@@ -145,6 +145,12 @@ table.st tr.ir td{color:var(--muted)}
 .nt-back{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
 .nt-bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
 .news a{color:inherit}
+.bd{border-top:1px solid var(--rule);padding:8px 0}.bd summary{cursor:pointer}
+.bd-full summary{opacity:.75}.bd-row{padding:8px 0 4px 12px;border-left:3px solid var(--rule);margin:8px 0 0}
+.bd-h{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}.bd-h .delta{margin-left:auto}
+.bd-row p{margin:2px 0}
+.bd-tag{font-size:.72rem;font-weight:600;padding:1px 6px;border-radius:9px;border:1px solid var(--rule);color:var(--muted)}
+.bd-b2b2{border-color:var(--warn);color:var(--warn)}
 .order{margin:0 0 14px;padding-left:1.4rem;display:grid;gap:6px}
 .order li::marker{font:700 1.05rem "Barlow Condensed","Arial Narrow",sans-serif;color:var(--you)}
 .pf{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 12px}.pf .seg{margin:0}
@@ -1057,6 +1063,63 @@ def _news_item(n):
             f'{(" " + escape(story)) if story and story != n["headline"] else ""}</p>')
 
 
+def _byday(plan, label):
+    """Free agents by day for one week: open spots, the best one-day pickups, back-to-backs."""
+    bd = plan.get("byday") or {}
+    wk = next((w for w in bd.get("weeks") or [] if w["label"] == label), None)
+    if not wk or not wk["days"]:
+        return ""
+    who = "next week’s opponent" if label == "Next week" else "your opponent"
+    cut = (f" If you have no streamer to swap out, your weakest player to cut is {escape(bd['cut'])}."
+           if bd.get("cut") else "")
+    h = (f'<section class="panel" style="margin-bottom:18px"><h2>Free agents by day</h2>'
+         f'<p class="hint">For each day: how many open lineup spots you have, and the free agents who play that day, '
+         f'simulated against {who} with each one in your lineup for that day only. A pickup needs a roster spot, '
+         f'and these numbers don’t subtract the games of whoever you drop.{cut}</p>')
+    for d in wk["days"]:
+        rows = [r for r in d["rows"] if r["win_delta"] >= 0.01 or r["cats_delta"] >= 0.1]
+        if d["open"]:
+            room = f'{d["open"]} open spot{"s" if d["open"] != 1 else ""}'
+        else:
+            room = f'full ({d["playing"]} players for your spots)'
+        best = f' · best: {escape(rows[0]["name"])} {_signed(round(rows[0]["win_delta"] * 100), "%")}' if rows else ""
+        cls = "bd-open" if d["open"] else "bd-full"
+        body = ""
+        if not rows:
+            if d["open"]:
+                body = '<p class="dc">No free agent who plays this day helps enough to be worth an add.</p>'
+            else:
+                body = (f'<p class="dc">Your lineup is full, so a pickup only plays if he’s better than your weakest '
+                        f'starter{" (" + escape(d["weakest"]) + ")" if d.get("weakest") else ""}, and none is by enough '
+                        f'to matter. Save the add for a lighter day.</p>')
+        for r in rows:
+            tags = []
+            if r["b2b"] == "2nd night":
+                tags.append('<span class="bd-tag bd-b2b2" title="Played the day before: rest risk">B2B, 2nd night</span>')
+            elif r["b2b"] == "1st night":
+                tags.append('<span class="bd-tag" title="Plays the next day too">B2B, 1st night</span>')
+            if r["status"] != "Healthy":
+                tags.append(f'<span class="bd-tag bd-b2b2">{escape(r["status"])}</span>')
+            if not r["fills"]:
+                tags.append('<span class="bd-tag" title="Your lineup is full: he’d replace your weakest starter">Upgrade</span>')
+            up = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["up"])
+            down = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["down"])
+            moves = " · ".join(x for x in (up, down) if x)
+            also = (f'<p class="dc">Also plays on your other open days: {escape(", ".join(r["open_days"]))}</p>'
+                    if r["open_days"] else "")
+            trend = f'<p class="dc">{escape(r["trend"])}</p>' if r.get("trend") else ""
+            dw = round(r["win_delta"] * 100)
+            tone = "pos" if dw > 0 else "neg" if dw < 0 else "flat"
+            body += (f'<div class="bd-row"><div class="bd-h"><strong>{escape(r["name"])}</strong> '
+                     f'<span class="dc">{escape(r["team"])}</span>{"".join(tags)}'
+                     f'<span class="delta {tone}">{_signed(dw, "%")} win</span></div>'
+                     f'<p class="dc">{r["cats_delta"]:+.2f} expected categories{" · " + escape(moves) if moves else ""}</p>'
+                     f'{also}{trend}</div>')
+        h += (f'<details class="bd {cls}"><summary><strong>{escape(d["label"])}</strong>'
+              f' <span class="dc">{room}{best}</span></summary>{body}</details>')
+    return h + "</section>"
+
+
 def _injury_tab(data):
     watch = data.get("injury_watch") or []
     help_ = ('<p class="hint" style="margin-top:14px">Track more players by adding names to the <code>WATCH_PLAYERS</code> '
@@ -1198,10 +1261,12 @@ def render(data, plan):
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div></div>
 {_league(plan)}
 <section class="panel"><h2>What if…</h2>{_whatif(plan)}</section>
+{_byday(plan, "This week")}
 </div>
 <div id="tab-next" role="tabpanel" aria-label="Next week" hidden>
 {_nextmatch(plan, data)}
 <section class="panel" style="margin-bottom:18px"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
+{_byday(plan, "Next week")}
 {_schedule_section(data)}{_teams_section(data)}
 </div>
 <div id="tab-players" role="tabpanel" aria-label="Players" hidden>{_players_tab(data)}</div>
