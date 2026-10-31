@@ -101,6 +101,16 @@ The newest tagged story counts toward the advice. A return report can move a fre
 
 The tags come from keywords, not from reading the article, so they're a nudge. Open the story before you act. Feeds that fail or change are skipped without stopping the run (the log lists them). To choose your own feeds, set the `NEWS_FEEDS` variable to comma-separated `Name|url` pairs, like `RotoWire|https://www.rotowire.com/rss/news.php?sport=NBA, Hoops Rumors|https://www.hoopsrumors.com/feed`. Set it to `none` to turn outside news off.
 
+## Free agents by day
+Both the **This week** and **Next week** tabs have a **Free agents by day** section. Each day shows how many open lineup spots you have and the best free agents who play that day. Each one is simulated against your opponent as if he were in your lineup that day only, so you see the change in your chance to win the week, in expected categories, and which categories move.
+
+- **B2B, 2nd night**: he also played the day before. Teams sometimes rest players on the second night, so check the news before relying on him.
+- **B2B, 1st night**: he plays the next day too.
+- **Upgrade**: your lineup is full that day, so he'd only play by replacing your weakest starter.
+- **Also plays on your other open days**: a player who covers several of your light days is worth more than a one-day stream.
+
+Full days usually show nothing worth adding, which is the point: save adds for your light days. Every pickup needs a roster spot, and the numbers don't subtract the games of whoever you drop; the section names your weakest droppable player so you can weigh that. Next week uses your roster after the **Set up next week** moves and season-long numbers. The section updates with every run, so each morning it reflects the current free agents and your roster.
+
 ## Set up next week
 Adds reset when a new matchup starts, so any you still have on the last day are free. The **Set up next week** panel (under the streaming plan) uses them: it finds the free agents who add the most starter games to next week's lineup, counting only games on days you'd have room to start them, weighted by how good they are. It suggests who to drop: streamers from this week first, and a regular only for someone at least as good over the season. If the player to drop still has a game on the last day, it tells you to wait until that game ends. These moves also show in the deadline banner and Discord on the last day.
 
