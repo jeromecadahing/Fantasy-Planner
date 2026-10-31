@@ -75,6 +75,21 @@ Two ways to get reminded without opening the page:
   Calendar apps refresh on their own schedule, so treat the page as the source of truth if a plan changes late.
 - **Discord:** if you've set `DISCORD_WEBHOOK_URL`, the **Roster deadline reminder** workflow posts about an hour before each deadline with the moves to make. It reads the published page only, so it doesn't use any ESPN requests.
 
+## Injury alerts
+The **Injury alerts** workflow checks ESPN every 30 minutes and posts to Discord the moment an injured player you're tracking changes:
+
+- his status changes (🟡 Out → Day-to-day, 🟢 back to healthy, 🔴 worse)
+- ESPN gives or moves a return date
+- ESPN posts a new news blurb about him
+- someone in your league picks him up or drops him, or he goes on waivers
+- his ownership across ESPN leagues jumps 5 points or more (other managers are starting to stash him)
+
+When it's worth acting, it adds a line like "Add him now and put him on IR before someone else does."
+
+It tracks your `WATCH_PLAYERS` plus everyone on the page's Injury watch tab, and keeps following a player until he's healthy. It needs the `DISCORD_WEBHOOK_URL` secret. The first run posts the list it's watching; after that it stays quiet unless something changes.
+
+It's only as fast as ESPN. Return news usually breaks first from NBA reporters on X, and ESPN's player feed follows within minutes to hours. You won't beat a reporter's post, but you'll hear well before anyone waiting for the morning update. To check hourly instead of every 30 minutes, change the `cron` line in `.github/workflows/injury_alert.yml` to `"7 * * * *"`.
+
 ## Set up next week
 Adds reset when a new matchup starts, so any you still have on the last day are free. The **Set up next week** panel (under the streaming plan) uses them: it finds the free agents who add the most starter games to next week's lineup, counting only games on days you'd have room to start them, weighted by how good they are. It suggests who to drop: streamers from this week first, and a regular only for someone at least as good over the season. If the player to drop still has a game on the last day, it tells you to wait until that game ends. These moves also show in the deadline banner and Discord on the last day.
 
