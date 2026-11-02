@@ -396,8 +396,15 @@ def _days(plan):
         if d.get("squeezed"):
             chips += (f'<p class="dc" style="margin:4px 0 0">{escape(", ".join(d["squeezed"]))} can’t start: '
                       f'the open spot{"s don’t" if d["open"] > 1 else " doesn’t"} fit his position.</p>')
+        them = ""
+        if d.get("opp_start") or d.get("opp_out"):
+            them = ('<p class="dc" style="margin:4px 0 0">Them: '
+                    + (escape(", ".join(d.get("opp_start") or [])) or "nobody")
+                    + (f'; benched {escape(", ".join(d["opp_bench"]))}' if d.get("opp_bench") else "")
+                    + (f'; not counted (ruled out) {escape(", ".join(d["opp_out"]))}' if d.get("opp_out") else "")
+                    + '</p>')
         out.append(f'<div class="day"><div class="dh"><span class="dn">{escape(d["day"])}</span>'
-                   f'<span class="dc">{cnt}</span></div><div>{chips or "<span class=empty>No games</span>"}</div></div>')
+                   f'<span class="dc">{cnt}</span></div><div>{chips or "<span class=empty>No games</span>"}</div>{them}</div>')
     return "".join(out)
 
 
