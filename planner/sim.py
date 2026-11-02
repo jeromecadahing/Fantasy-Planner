@@ -181,6 +181,8 @@ def _lineups(data, my_es, opp_es, days_left, slots):
     for d in days_left:
         mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
         theirs = [e for e in opp_es if e.p["games"][d] and e.p["prob"][d] > 0]
+        their_out = [e.p["name"] for e in opp_es if e.p["games"][d] and e.p["prob"][d] <= 0]
+        their_on, _ = fill_slots([e.elig for e in theirs], slots)
         on, at = fill_slots([e.elig for e in mine], slots)
         start = [e for e, x in zip(mine, on) if x]
         bench = [e for e, x in zip(mine, on) if not x]
@@ -191,7 +193,10 @@ def _lineups(data, my_es, opp_es, days_left, slots):
                     "slot": [a for a, x in zip(at, on) if x],
                     "bench": [e.p["name"] for e in bench], "squeezed": squeezed,
                     "open": max(0, n_slots(slots) - len(start)),
-                    "opp_games": sum(fill_slots([e.elig for e in theirs], slots)[0])})
+                    "opp_games": sum(their_on),
+                    "opp_start": [e.p["name"] for e, x in zip(theirs, their_on) if x],
+                    "opp_bench": [e.p["name"] for e, x in zip(theirs, their_on) if not x],
+                    "opp_out": their_out})
     return out
 
 
