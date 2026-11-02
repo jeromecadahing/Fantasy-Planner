@@ -523,8 +523,16 @@ def load(cfg):
 
     def side(team, stats):
         roster = _with_stats(lg, list(team.roster))
-        players = [x for x in (_player(p, lg.year, days, today_index, team_games, ir=(p.lineupSlot == "IR"),
-                                       team_tips=team_tips) for p in roster) if x]
+        players = []
+        for p in roster:
+            x = _player(p, lg.year, days, today_index, team_games, ir=(p.lineupSlot == "IR"), team_tips=team_tips)
+            if x:
+                players.append(x)
+            else:
+                print(f"{team.team_name}: skipped {p.name} (no stats or projection from ESPN)")
+        for x in players:
+            if x["status"] == "Out" and not x["ir"]:
+                print(f"{team.team_name}: {x['name']} is Out, counted as missing every remaining day")
         sofar, note = _sofar(stats, [p for p in players if not p["ir"]])
         return {"name": team.team_name, "id": team.team_id, "sofar": sofar, "players": players}, note
 
