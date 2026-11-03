@@ -67,6 +67,17 @@ def parse_lineup(text):
     return start, sit
 
 
+def _find_days(data, day_q, days_left):
+    """Days left in the matchup matching what was typed: today/tonight, tomorrow, a weekday or a date."""
+    q = (day_q or "").strip().lower()
+    t = data["today_index"]
+    if q in ("today", "tonight", "now"):
+        return [t] if t in days_left else []
+    if q in ("tomorrow", "tmrw", "tmr"):
+        return [t + 1] if t + 1 in days_left else []
+    return [d for d in days_left if data["days"][d]["label"].lower().startswith(q[:3])]
+
+
 def _force_lineup(es, start, sit, lo, hi):
     """Split entries so that on days lo..hi-1 the start players outrank everyone and the sit players are out of
     the lineup (benched, even if that leaves a spot empty). Outside those days nothing changes."""
@@ -266,7 +277,7 @@ def scenario(data, cfg, w, opp_tot, res):
     eff = data["today_index"] + cfg.add_delay_days
     t = eff
     if day_q:
-        found = [d for d in days_left if data["days"][d]["label"].lower().startswith(day_q.strip().lower()[:3])]
+        found = _find_days(data, day_q, days_left)
         if not found:
             out["notes"].append(f'"{day_q}" isn\'t a day left in this matchup, so the move starts as soon as possible.')
         elif found[0] < eff:
@@ -338,7 +349,7 @@ def _lineup_scenario(data, cfg, w, opp_tot, res, start, sit, day_q, out):
     days_left = list(range(data["today_index"], len(data["days"])))
     lo, hi, when = data["today_index"], len(data["days"]), "every day left this week"
     if day_q:
-        found = [d for d in days_left if data["days"][d]["label"].lower().startswith(day_q.strip().lower()[:3])]
+        found = _find_days(data, day_q, days_left)
         if found:
             lo, hi, when = found[0], found[0] + 1, data["days"][found[0]]["label"]
         else:
