@@ -382,6 +382,11 @@ def _days(plan):
     if not plan["lineup"]:
         return '<p class="empty">No days left in this matchup.</p>'
     out = []
+    cw = plan.get("cat_weights")
+    if cw and any(d.get("why_bench") for d in plan["lineup"]):
+        out.append('<p class="dc" style="margin:0 0 8px">Starters are ranked by per-game value, weighted toward '
+                   'the categories still in play this week (1.08 = coin flip, 0.08 = already decided): '
+                   + escape(", ".join(f"{c} {v:g}" for c, v in cw.items())) + '.</p>')
     for d in plan["lineup"]:
         cnt = f'You {len(d["start"])}, them {d["opp_games"]}'
         if d["bench"]:
@@ -396,6 +401,18 @@ def _days(plan):
         if d.get("squeezed"):
             chips += (f'<p class="dc" style="margin:4px 0 0">{escape(", ".join(d["squeezed"]))} can’t start: '
                       f'the open spot{"s don’t" if d["open"] > 1 else " doesn’t"} fit his position.</p>')
+        for y in d.get("why_bench") or []:
+            if y["kind"] == "position":
+                chips += f'<p class="dc" style="margin:4px 0 0"><b>Why {escape(y["name"])} sits:</b> {escape(y["text"])}.</p>'
+            else:
+                fmt = lambda xs: ", ".join(f"{c} +{v:g}" for c, v in xs)
+                txt = (f'to start he’d have to take {escape(y["rival"])}’s spot, and {escape(y["rival"])} rates '
+                       f'{y["rival_val"]:g} to his {y["val"]:g} for this matchup')
+                if y["rival_edge"]:
+                    txt += f', mainly on {escape(fmt(y["rival_edge"]))}'
+                if y["edge"]:
+                    txt += f'; {escape(y["name"])} is better on {escape(fmt(y["edge"]))}'
+                chips += f'<p class="dc" style="margin:4px 0 0"><b>Why {escape(y["name"])} sits:</b> {txt}.</p>'
         them = ""
         if d.get("opp_start") or d.get("opp_out"):
             them = ('<p class="dc" style="margin:4px 0 0">Them: '
