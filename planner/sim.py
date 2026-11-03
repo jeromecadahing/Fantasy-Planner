@@ -15,6 +15,40 @@ def value(s, w):
             + w[6] * s["stl"] / 0.6 + w[7] * s["blk"] / 0.6 - w[8] * s["to"])
 
 
+CAT_NAMES = ["FG%", "FT%", "3PM", "PTS", "REB", "AST", "STL", "BLK", "TO"]
+
+
+def value_parts(s, w):
+    """value() split into its nine weighted category terms (they sum to value(s, w))."""
+    pts = 2 * s["fgm"] + s["tpm"] + s["ftm"]
+    return [w[0] * (s["fgm"] - s["fga"] * 0.475), w[1] * (s["ftm"] - s["fta"] * 0.78) / 0.6,
+            w[2] * s["tpm"], w[3] * pts / 6, w[4] * s["reb"] / 2.5, w[5] * s["ast"] / 2,
+            w[6] * s["stl"] / 0.6, w[7] * s["blk"] / 0.6, -w[8] * s["to"]]
+
+
+def _why_bench(b, start, slots, w):
+    """Why a benched player sits: who he'd have to replace, and the category edge that decides it."""
+    # Starters he could swap in for without breaking the lineup's positions.
+    swaps = []
+    for s_ in start:
+        rest = [e for e in start if e is not s_] + [b]
+        if all(fill_slots([e.elig for e in rest], slots)[0]):
+            swaps.append(s_)
+    if not swaps:
+        elig = "/".join(sorted(b.elig)) if b.elig else "any"
+        return {"name": b.p["name"], "kind": "position",
+                "text": f"no open {elig} spot: every slot he can play is taken by someone the lineup can't move"}
+    rival = min(swaps, key=lambda e: e.prio)  # the weakest starter he could replace
+    pb, pr = value_parts(b.p["s"], w), value_parts(rival.p["s"], w)
+    diff = sorted(((CAT_NAMES[c], pr[c] - pb[c]) for c in range(9)), key=lambda x: -x[1])
+    for_r = [(c, v) for c, v in diff if v >= 0.05][:3]
+    for_b = [(c, -v) for c, v in reversed(diff) if v <= -0.05][:3]
+    return {"name": b.p["name"], "kind": "value", "rival": rival.p["name"],
+            "rival_val": round(rival.prio, 2), "val": round(b.prio, 2),
+            "rival_edge": [(c, round(v, 2)) for c, v in for_r],
+            "edge": [(c, round(v, 2)) for c, v in for_b]}
+
+
 class Entry:
     __slots__ = ("p", "frm", "until", "prio", "elig")
 
@@ -168,15 +202,15 @@ def build_plan(data, cfg):
     stream = _stream_plan(data, cfg, me_players, w, days_left, opp_tot)
     stream_es = stream.pop("entries", None)
     plan_es = sorted(stream_es or my_es, key=lambda e: -e.prio)
-    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots)
+    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots, w)
     from . import whatif
-    return {"result": res, "weights": w, "lineup": lineup, "picks": picks, "pick_note": pick_note,
+    return {"result": res, "weights": w, "cat_weights": dict(zip(CAT_NAMES, (round(x, 2) for x in w))), "lineup": lineup, "picks": picks, "pick_note": pick_note,
             "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data),
             "whatif": whatif.grid(data, cfg, w, opp_tot), "scenario": whatif.scenario(data, cfg, w, opp_tot, res),
             "plan_entries": stream_es, "slots": slots}
 
 
-def _lineups(data, my_es, opp_es, days_left, slots):
+def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL):
     out = []
     for d in days_left:
         mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
@@ -192,6 +226,7 @@ def _lineups(data, my_es, opp_es, days_left, slots):
                     "start": [(e.p["name"], e.p["prob"][d], e.p["status"]) for e in start],
                     "slot": [a for a, x in zip(at, on) if x],
                     "bench": [e.p["name"] for e in bench], "squeezed": squeezed,
+                    "why_bench": [_why_bench(b, start, slots, w) for b in bench],
                     "open": max(0, n_slots(slots) - len(start)),
                     "opp_games": sum(their_on),
                     "opp_start": [e.p["name"] for e, x in zip(theirs, their_on) if x],
