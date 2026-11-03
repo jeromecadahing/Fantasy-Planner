@@ -6,6 +6,7 @@ Two pieces:
 - scenario(): a custom move typed into the WHAT_IF setting or the "Run workflow" box, for players who
   aren't in the free-agent pool (trade targets, your opponent's players, deeper waiver names).
   Format:  add: Jalen Brunson, Naz Reid; drop: Grant Sato, Luca Varga; day: Wed
+  Lineup only:  start: Daniel Gafford; sit: Toumani Camara; day: Fri   (day optional: whole week)
 """
 import re
 import unicodedata
@@ -48,6 +49,44 @@ def parse(text):
         elif key in ("day", "from", "on", "when"):
             day = val.strip()
     return adds, drops, day
+
+
+def parse_lineup(text):
+    """start:/sit: names from a scenario, for lineup-only what-ifs."""
+    start, sit = [], []
+    for part in re.split(r"[;\n]", text or ""):
+        if ":" not in part:
+            continue
+        key, val = part.split(":", 1)
+        key = key.strip().lower()
+        names = [n.strip() for n in val.split(",") if n.strip()]
+        if key.startswith(("start", "play")):
+            start += names
+        elif key.startswith(("sit", "bench")):
+            sit += names
+    return start, sit
+
+
+def _force_lineup(es, start, sit, lo, hi):
+    """Split entries so that on days lo..hi-1 the start players outrank everyone and the sit players are out of
+    the lineup (benched, even if that leaves a spot empty). Outside those days nothing changes."""
+    top = max((e.prio for e in es), default=0) + 100
+    out = []
+    for e in es:
+        forced = top if any(e.p is x for x in start) else -top if any(e.p is x for x in sit) else None
+        if forced is None:
+            out.append(e)
+            continue
+        a, b = max(e.frm, lo), min(e.until, hi)
+        if a >= b:
+            out.append(e)
+            continue
+        for frm, until, pr in ((e.frm, a, e.prio), (a, b, forced), (b, e.until, e.prio)):
+            if frm < until and pr != -top:
+                x = Entry(e.p, EQUAL, frm, until)
+                x.prio = pr
+                out.append(x)
+    return sorted(out, key=lambda e: -e.prio)
 
 
 # ---------- shared helpers ----------
@@ -167,9 +206,11 @@ def scenario(data, cfg, w, opp_tot, res):
     if not cfg.what_if:
         return None
     adds_q, drops_q, day_q = parse(cfg.what_if)
+    start_q, sit_q = parse_lineup(cfg.what_if)
     out = {"text": cfg.what_if, "errors": [], "notes": []}
-    if not adds_q and not drops_q:
-        out["errors"].append('Couldn\'t read that. Write it like "add: Jalen Brunson; drop: Grant Sato".')
+    if not adds_q and not drops_q and not start_q and not sit_q:
+        out["errors"].append('Couldn\'t read that. Write it like "add: Jalen Brunson; drop: Grant Sato" '
+                             'or "start: Daniel Gafford; sit: Toumani Camara".')
         return out
 
     me_all = data["me"]["players"]
@@ -204,8 +245,22 @@ def scenario(data, cfg, w, opp_tot, res):
             out["errors"].append(f"{q} matches {', '.join(me_all[i]['name'] for i in hits[:4])}. Use the full name.")
         else:
             drops.append(me_all[hits[0]])
-    if out["errors"] or not (adds or drops):
+    start, sit = [], []
+    for qs, into in ((start_q, start), (sit_q, sit)):
+        for q in qs:
+            hits = match(q, [p["name"] for p in me_all])
+            if not hits:
+                out["errors"].append(f"{q} isn't on your roster.")
+            elif len(hits) > 1:
+                out["errors"].append(f"{q} matches {', '.join(me_all[i]['name'] for i in hits[:4])}. Use the full name.")
+            elif me_all[hits[0]]["ir"]:
+                out["errors"].append(f"{me_all[hits[0]]['name']} is on IR, so he can't start.")
+            else:
+                into.append(me_all[hits[0]])
+    if out["errors"] or not (adds or drops or start or sit):
         return out
+    if not (adds or drops):
+        return _lineup_scenario(data, cfg, w, opp_tot, res, start, sit, day_q, out)
 
     days_left = list(range(data["today_index"], len(data["days"])))
     eff = data["today_index"] + cfg.add_delay_days
@@ -274,6 +329,50 @@ def scenario(data, cfg, w, opp_tot, res):
         "after": {"win": after["win"], "cats": after["cats"], "catP": after["catP"]},
         "starts_delta": starts_after - starts_before,
         "next": nxt,
+    })
+    return out
+
+
+def _lineup_scenario(data, cfg, w, opp_tot, res, start, sit, day_q, out):
+    """Start/sit what-if: the same roster, with your lineup choice forced on one day or all week."""
+    days_left = list(range(data["today_index"], len(data["days"])))
+    lo, hi, when = data["today_index"], len(data["days"]), "every day left this week"
+    if day_q:
+        found = [d for d in days_left if data["days"][d]["label"].lower().startswith(day_q.strip().lower()[:3])]
+        if found:
+            lo, hi, when = found[0], found[0] + 1, data["days"][found[0]]["label"]
+        else:
+            out["notes"].append(f'"{day_q}" isn\'t a day left in this matchup, so this covers every day left.')
+    slots, sofar = cfg.active_slots, data["me"]["sofar"]
+    me_players = [p for p in data["me"]["players"] if not p["ir"]]
+    base_es = entries(me_players, w)
+    my_es = _force_lineup(base_es, start, sit, lo, hi)
+    after = compare(sim_team(my_es, days_left, sofar, cfg.sims, np.random.default_rng(777), slots), opp_tot)
+
+    # Day by day: what actually changes in the lineup.
+    changes = []
+    for d in range(lo, hi):
+        def starters(es):
+            cand = [e for e in es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
+            on, _ = fill_slots([e.elig for e in cand], slots)
+            return {e.p["name"] for e, x in zip(cand, on) if x}
+        b, a = starters(base_es), starters(my_es)
+        if a != b:
+            changes.append({"day": data["days"][d]["label"], "in": sorted(a - b), "out": sorted(b - a)})
+    for p in start:
+        if not any(p["games"][d] and p["prob"][d] > 0 for d in range(lo, hi)):
+            out["notes"].append(f"{p['name']} has no game he's expected to play in that window.")
+    if not changes:
+        out["notes"].append("This doesn't change your lineup on any day: the players you named already start or "
+                            "sit like that, or they don't play on the same days.")
+        after = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
+    else:
+        out["notes"].append("Swings of a point or two are within the simulation's noise.")
+    out.update({
+        "ok": True, "lineup": True, "when": when,
+        "start": [p["name"] for p in start], "sit": [p["name"] for p in sit], "changes": changes,
+        "before": {"win": res["win"], "cats": res["cats"], "catP": res["catP"]},
+        "after": {"win": after["win"], "cats": after["cats"], "catP": after["catP"]},
     })
     return out
 
