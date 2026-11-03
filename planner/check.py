@@ -1,4 +1,4 @@
-"""Has your ESPN roster changed since the page was last built?
+"""Has your ESPN roster, or this week's opponent's, changed since the page was last built?
 
 One small ESPN request (your league's rosters) compared with the fingerprint saved in the
 published plan.json. Prints the answer and, inside GitHub Actions, sets the step output
@@ -34,13 +34,33 @@ def espn_fingerprint(cfg):
         cookies.append(f"espn_s2={cfg.espn_s2}")
     if cfg.swid:
         cookies.append(f"SWID={cfg.swid}")
-    url = ENDPOINT.format(year=cfg.year, league=cfg.league_id) + "?view=mRoster"
+    url = ENDPOINT.format(year=cfg.year, league=cfg.league_id) + "?view=mRoster&view=mMatchup&view=mStatus"
     data = _get(url, {"Cookie": "; ".join(cookies)} if cookies else None)
-    for t in data.get("teams", []):
-        if t.get("id") == cfg.team_id:
-            entries = (t.get("roster") or {}).get("entries") or []
-            return fingerprint((e.get("playerId"), e.get("lineupSlotId") == IR_SLOT) for e in entries)
-    raise LookupError(f"Team {cfg.team_id} not found in league {cfg.league_id}")
+    rosters = {t.get("id"): (t.get("roster") or {}).get("entries") or [] for t in data.get("teams", [])}
+    if cfg.team_id not in rosters:
+        raise LookupError(f"Team {cfg.team_id} not found in league {cfg.league_id}")
+    opp_id = _opponent(data, cfg.team_id)
+
+    def fp(tid):
+        return fingerprint((e.get("playerId"), e.get("lineupSlotId") == IR_SLOT) for e in rosters.get(tid, []))
+    return combined(fp(cfg.team_id), fp(opp_id) if opp_id in rosters else None)
+
+
+def combined(mine, opp):
+    """Your roster plus this week's opponent's, so a move by either side triggers a rebuild."""
+    return mine if opp is None else f"{mine}|{opp}"
+
+
+def _opponent(data, team_id):
+    """This matchup period's opponent from ESPN's schedule, or None if it can't be read."""
+    period = (data.get("status") or {}).get("currentMatchupPeriod")
+    for m in data.get("schedule") or []:
+        if m.get("matchupPeriodId") != period:
+            continue
+        h, a = (m.get("home") or {}).get("teamId"), (m.get("away") or {}).get("teamId")
+        if team_id in (h, a):
+            return a if h == team_id else h
+    return None
 
 
 def main():
@@ -58,9 +78,9 @@ def main():
     if current and published is None and not why:
         changed, why = True, "the published plan has no roster record yet"
     elif current and published and current != published:
-        changed, why = True, "your roster changed since the last update"
+        changed, why = True, "your roster or your opponent's changed since the last update"
     elif current and published:
-        why = "no roster change since the last update"
+        why = "no roster change on either side since the last update"
     print(f"Rebuild: {'yes' if changed else 'no'} ({why})")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
