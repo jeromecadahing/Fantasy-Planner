@@ -450,6 +450,20 @@ def _scenario(sc):
     b, a = round(sc["before"]["win"] * 100), round(sc["after"]["win"] * 100)
     d = a - b
     cls = "pos" if d > 0 else "neg" if d < 0 else "flat"
+    if sc.get("lineup"):
+        who = "; ".join(x for x in (
+            ("Start " + ", ".join(escape(n) for n in sc["start"])) if sc["start"] else "",
+            ("sit " + ", ".join(escape(n) for n in sc["sit"])) if sc["sit"] else "") if x)
+        ch = "".join(f'<p class="dc">{escape(c["day"])}: '
+                     + (f'in {escape(", ".join(c["in"]))}' if c["in"] else "")
+                     + ("; " if c["in"] and c["out"] else "")
+                     + (f'out {escape(", ".join(c["out"]))}' if c["out"] else "") + '</p>' for c in sc["changes"])
+        h += (f'<p class="lift" style="margin-top:8px"><span class="cd">{b}%</span> <span class="arrow">→</span> '
+              f'<span class="cd {cls}">{a}%</span> chance to win the week <span class="delta {cls}">{_signed(d, "%")}</span></p>'
+              f'<p>{who}, {escape(sc["when"])}. Expected categories {sc["before"]["cats"]:.1f} → {sc["after"]["cats"]:.1f}.</p>'
+              + ch + "".join(f'<p class="dc">{escape(n)}</p>' for n in sc["notes"])
+              + _cat_grid(sc["before"]["catP"], sc["after"]["catP"]) + "</div>")
+        return h
     adds = ", ".join(f'{escape(x["name"])} ({escape(x["team"])}, {escape(x["owner"])}, {x["games"]} game{"s" if x["games"] != 1 else ""})'
                      for x in sc["adds"]) or "nobody"
     drops = ", ".join(f'{escape(x["name"])} ({x["games"]} game{"s" if x["games"] != 1 else ""} given up)' for x in sc["drops"])
