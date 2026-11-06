@@ -6,7 +6,7 @@ import sys
 
 import requests
 
-from . import byday, demo, extras, league, nextmatch, nextweek, report, sim
+from . import byday, demo, extras, league, nextmatch, nextweek, report, sim, stash
 from .config import Config
 
 
@@ -25,6 +25,11 @@ def main():
 
     plan = sim.build_plan(data, cfg)
     extras.advise(data, cfg, plan)
+    try:
+        plan["stash"] = stash.build(data, cfg, plan, plan["opp_tot"])
+    except Exception as exc:  # a stash-simulator problem shouldn't stop the rest of the page
+        print(f"Stash simulator skipped: {exc}", file=sys.stderr)
+        plan["stash"] = None
     plan["nextweek"] = nextweek.plan(data, cfg, plan)
     plan["nextmatch"] = nextmatch.project(data, plan["slots"])
     plan["byday"] = byday.build(data, cfg, plan, plan["nextweek"])

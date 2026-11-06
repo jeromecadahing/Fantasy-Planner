@@ -223,7 +223,7 @@ def build_plan(data, cfg):
     return {"result": res, "weights": w, "cat_weights": dict(zip(CAT_NAMES, (round(x, 2) for x in w))), "lineup": lineup, "picks": picks, "pick_note": pick_note,
             "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data),
             "whatif": whatif.grid(data, cfg, w, opp_tot), "scenario": whatif.scenario(data, cfg, w, opp_tot, res),
-            "plan_entries": stream_es, "slots": slots}
+            "plan_entries": stream_es, "slots": slots, "opp_tot": opp_tot}
 
 
 def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL):

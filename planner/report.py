@@ -98,6 +98,20 @@ border-bottom:3px solid transparent;padding:10px 12px 9px;cursor:pointer;white-s
 .stale{background:#fff4d6;color:#5c4400;border:1px solid #e8c766;border-radius:10px;padding:10px 14px;margin:0 0 14px;font-weight:500}
 .wv{color:#8a5a00;font-weight:500}
 @media (prefers-color-scheme:dark){.stale{background:#3a2f12;color:#f3dc9a;border-color:#6b5520}.wv{color:#e7bd5e}}
+.sttab{position:relative;overflow-x:auto;margin:14px 0 4px;-webkit-overflow-scrolling:touch}
+.sttab table{width:auto;min-width:100%;font-size:.9rem}
+.sttab th,.sttab td{padding:6px 6px;text-align:center;border-top:1px solid var(--rule);white-space:nowrap;color:var(--ink)}
+.sttab thead th{border-top:0}
+.sttab th[scope=row]{text-align:left;font-weight:600;position:sticky;left:0;background:var(--surface);z-index:1;padding-right:12px}
+.sttab th small,.sttab td small{display:block;font-size:.72rem;color:var(--muted);font-weight:400}
+.sttab .grp{font:600 .8rem/1 Barlow,sans-serif;color:var(--muted);text-align:left;border-left:1px solid var(--rule);padding-bottom:2px}
+.sttab b{font:700 1.1rem/1 "Barlow Condensed","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}
+.sttab button{font:600 .95rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif;background:var(--field);color:var(--ink);
+border:1px solid var(--rule);border-radius:6px;padding:5px 7px;cursor:pointer;min-width:3.4rem}
+.sttab button i{display:block;font:600 .62rem/1 Barlow,sans-serif;font-style:normal;color:var(--you);margin-top:2px}
+.sttab button:focus-visible{outline:2px solid var(--you);outline-offset:2px}
+.sttab .sel{background:var(--you-soft)}.sttab th.sel button{background:var(--you);color:var(--on-you);border-color:var(--you)}
+.sttab th.sel button i{color:var(--on-you)}
 .lock{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center;background:var(--surface);
 border:1px solid var(--rule);border-left:5px solid var(--you);border-radius:12px;padding:14px 16px;margin-bottom:16px}
 .lock.soon{border-left-color:var(--opp)}.lock.past{border-left-color:var(--rule)}
@@ -1177,7 +1191,88 @@ def _byday(plan, label):
     return h + "</section>"
 
 
-def _injury_tab(data):
+STASH_JS = r"""(function(){
+var el=document.getElementById('st-data');if(!el)return;var S=JSON.parse(el.textContent);
+var P=document.getElementById('st-player'),R=document.getElementById('st-room'),T=document.getElementById('st-table'),O=document.getElementById('st-out');
+function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function opt(sel,t,v){var o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
+function pc(x){return Math.round(x/10);}
+function sg(v){return (v>0?'+':v<0?'−':'±')+Math.abs(v);}
+function tone(v){return v>=2?'pos':v<=-2?'neg':'flat';}
+function gm(n){return n+' game'+(n==1?'':'s');}
+var k=0;
+S.players.forEach(function(p,i){opt(P,p.name+' ('+p.team+', '+(p.mine?'your team':p.owner.toLowerCase())+(p.ret?', ESPN: back '+p.ret:'')+')',i);});
+function fillRoom(){var p=S.players[+P.value];R.innerHTML='';p.drops.forEach(function(d,i){
+  var lost=d.kind==='drop'?' (gives up '+gm(d.lost)+' this week, '+gm(d.lost_next)+' next)':'';opt(R,d.label+lost,i);});
+  R.disabled=p.drops.length<2;k=p.default;}
+function table(){
+ var p=S.players[+P.value],r=p.res[+R.value],b=S.base,h1='<tr><th></th>',h2='<tr><th scope="row">Back on</th>',rw='<tr><th scope="row">Win this week<small>now '+pc(b.w)+'%</small></th>',
+  rn='<tr><th scope="row">Win next week<small>'+(S.next_name?'vs '+esc(S.next_name)+', now '+pc(b.nw)+'%':'schedule not out yet')+'</small></th>',rg='<tr><th scope="row">His games<small>this week / next</small></th>';
+ var groups={this:'This week',next:'Next week',later:'Later'},last=null,span=0,heads=[];
+ S.opts.forEach(function(o){if(o.week!==last){heads.push({w:o.week,n:1});last=o.week;}else heads[heads.length-1].n++;});
+ heads.forEach(function(g){h1+='<th colspan="'+g.n+'" class="grp">'+groups[g.w]+'</th>';});
+ S.opts.forEach(function(o,i){var sel=i===k?' sel':'',espn=i===p.default&&p.ret?'<i>ESPN</i>':'';
+  var lab=o.week==='later'?'Later':o.label.split(' ')[0]+' '+o.label.split(' ').pop();
+  h2+='<th class="'+sel+'"><button type="button" data-k="'+i+'" aria-pressed="'+(i===k)+'">'+lab+espn+'</button></th>';
+  var dw=pc(r.w[i])-pc(b.w);rw+='<td class="'+sel+'"><b class="'+tone(dw)+'">'+pc(r.w[i])+'%</b><small>'+sg(dw)+'</small></td>';
+  if(r.nw[i]==null)rn+='<td class="'+sel+'">–</td>';else{var dn=pc(r.nw[i])-pc(b.nw);rn+='<td class="'+sel+'"><b class="'+tone(dn)+'">'+pc(r.nw[i])+'%</b><small>'+sg(dn)+'</small></td>';}
+  rg+='<td class="'+sel+'">'+p.g[i]+' / '+p.ng[i]+'</td>';});
+ T.innerHTML='<table><thead>'+h1+'</tr>'+h2+'</tr></thead><tbody>'+rw+'</tr>'+rn+'</tr>'+rg+'</tr></tbody></table>';
+ T.querySelectorAll('button[data-k]').forEach(function(bt){bt.onclick=function(){k=+bt.dataset.k;table();};});
+ reveal();
+ summary(p,r);
+}
+// Keep the chosen day in view on narrow screens (the table scrolls sideways).
+function reveal(){var sc=T.querySelector('th.sel'),rh=T.querySelector('th[scope=row]');if(!sc||!T.clientWidth)return;
+ var left=sc.offsetLeft-(rh?rh.offsetWidth:0)-8;
+ if(left<T.scrollLeft||sc.offsetLeft+sc.offsetWidth>T.scrollLeft+T.clientWidth)T.scrollLeft=Math.max(0,left);}
+document.querySelectorAll('[data-tab="injuries"]').forEach(function(b){b.addEventListener('click',function(){setTimeout(reveal,0);});});
+window.addEventListener('load',reveal);window.addEventListener('hashchange',function(){setTimeout(reveal,0);});
+function summary(p,r){
+ var b=S.base,o=S.opts[k],dp=p.drops[+R.value],dw=pc(r.w[k])-pc(b.w),dn=r.nw[k]==null?null:pc(r.nw[k])-pc(b.nw);
+ var when=o.week==='later'?'not back before next week ends':'back '+(o.today?'today ('+o.label+')':o.label);
+ var h='<p class="lift"><strong>If '+esc(p.name)+' is '+when+'</strong>, he plays '+gm(p.g[k])+' for you this week and '+gm(p.ng[k])+' next week.</p>';
+ h+='<p>This week: <span class="cd">'+pc(b.w)+'%</span> → <span class="cd '+tone(dw)+'">'+pc(r.w[k])+'%</span> <span class="delta '+tone(dw)+'">'+sg(dw)+'</span>';
+ if(dn!=null)h+='. Next week vs '+esc(S.next_name)+': <span class="cd">'+pc(b.nw)+'%</span> → <span class="cd '+tone(dn)+'">'+pc(r.nw[k])+'%</span> <span class="delta '+tone(dn)+'">'+sg(dn)+'</span>';
+ h+='.</p>';
+ // The latest return day where the stash still pays for itself over both weeks.
+ var ok=-1;S.opts.forEach(function(x,i){var t=(r.w[i]-b.w)+(r.nw[i]==null?0:r.nw[i]-b.nw);if(t>=0)ok=i;});
+ var verdict;
+ if(p.mine)verdict='He’s already yours, so this shows how much his return date matters. The longer he’s out, the more a streamer in his spot would help.';
+ else if(ok===S.opts.length-1)verdict='This costs you nothing these two weeks even if he stays out, so it’s a free stash.';
+ else if(ok<0)verdict='Even back today, this way of making room costs you more than he adds over these two weeks. Stash him only if you’re playing for later in the season, or try another way to make room.';
+ else verdict='Across both weeks, the stash pays for itself if he’s back by <strong>'+esc(S.opts[ok].label)+'</strong>. Any later and you’re giving up more than he brings, at least until the week after.';
+ h+='<p>'+verdict+'</p>';
+ var notes=[];
+ if(dp.kind==='drop')notes.push(esc(dp.label.replace('Drop ',''))+' gives up '+gm(dp.lost)+' this week and '+gm(dp.lost_next)+' next week, and the drop is permanent.');
+ if(dp.kind==='ir')notes.push('ESPN only allows Out players in IR. When he’s back you’ll need a bench spot to activate him.');
+ if(p.owner==='On waivers')notes.push('He’s on waivers, so this is a claim; the simulation doesn’t count games before it clears.');
+ if(p.ret)notes.push('ESPN’s estimate is '+esc(p.ret)+', and these often move.');else notes.push('ESPN hasn’t given a return date.');
+ notes.push('Once back he’s counted as playing about '+Math.round(S.return_prob*100)+'% of his games, at his healthy per-game numbers. No other moves are assumed on either side.');
+ h+='<p class="dc">'+notes.join(' ')+'</p>';
+ O.innerHTML=h;
+}
+P.addEventListener('change',function(){fillRoom();table();});
+R.addEventListener('change',table);
+fillRoom();table();
+})();"""
+
+
+def _stash(plan):
+    st = plan.get("stash")
+    if not st:
+        return ""
+    blob = json.dumps(st, separators=(",", ":")).replace("</", "<\\/")
+    return ('<section class="panel" style="margin-bottom:18px"><h2>Stash simulator</h2>'
+            '<p class="hint">Pick an injured player and how you’d make room for him, then tap a return day to see '
+            'what stashing him does to your chances this week and next.</p>'
+            '<div class="wi"><label>Player<select id="st-player"></select></label>'
+            '<label>Make room by<select id="st-room"></select></label></div>'
+            '<div class="sttab" id="st-table"></div><div class="wiout" id="st-out" aria-live="polite"></div>'
+            f'<script type="application/json" id="st-data">{blob}</script><script>{STASH_JS}</script></section>')
+
+
+def _injury_tab(data, plan=None):
     watch = data.get("injury_watch") or []
     help_ = ('<p class="hint" style="margin-top:14px">Track more players by adding names to the <code>WATCH_PLAYERS</code> '
              'variable in GitHub (Settings → Secrets and variables → Actions → Variables).</p>')
@@ -1218,7 +1313,7 @@ def _injury_tab(data):
                    f'<div class="facts">{"".join(facts)}</div>{_line_chips(x)}'
                    f'<ul>{"".join(f"<li>{escape(w)}</li>" for w in x["why"])}</ul>'
                    f'{f"<div class=news>{news}</div>" if news else ""}</article>')
-    return (miss + f'<section class="panel" style="margin-bottom:18px">{order}<h2>Injured players</h2>'
+    return (miss + _stash(plan or {}) + f'<section class="panel" style="margin-bottom:18px">{order}<h2>Injured players</h2>'
             f'<p class="hint">Return dates are ESPN’s estimates and often move.</p><div class="inj">{cards_}</div>{help_}</section>')
 
 
@@ -1351,7 +1446,7 @@ def render(data, plan):
 {_schedule_section(data)}{_teams_section(data)}
 </div>
 <div id="tab-players" role="tabpanel" aria-label="Players" hidden>{_players_tab(data)}</div>
-<div id="tab-injuries" role="tabpanel" aria-label="Injuries" hidden>{_injury_tab(data)}
+<div id="tab-injuries" role="tabpanel" aria-label="Injuries" hidden>{_injury_tab(data, plan)}
 {f'<section class="panel"><h2>Status and minutes changes</h2><p class="hint">Injury status and minutes trends for both rosters, and free agents whose minutes are rising.</p><div class="scroll"><table class="trend">{trends}</table></div></section>' if trends else ""}
 </div>
 <p class="foot">Every remaining game is simulated thousands of times from recent averages, with injury status setting each

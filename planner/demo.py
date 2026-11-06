@@ -133,6 +133,9 @@ def load():
             p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
     data["next_opp"] = {"name": data["others"][0]["name"], "players": data["others"][0]["players"]}
     data["plan_day"] = days[data["today_index"]]["date"]
+    # Demo players all play for "DEMO"; give that a schedule so the stash simulator has games to place.
+    data["team_sched"]["DEMO"] = {"last": bool(SCHED["A"][6]), "this": [bool(g) for g in SCHED["A"][data["today_index"]:]],
+                                  "next": [bool(g) for g in nxt["A"]]}
     # One free agent on waivers, clearing at 4 am Eastern tomorrow, so he can't play today.
     ti = data["today_index"]
     for p in data["fa"]:
