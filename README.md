@@ -58,9 +58,14 @@ After that it updates on its own:
 | about 8:15 am | Main plan, after every game from the night before is final |
 | about 10:15 am | Backup, in case GitHub or ESPN was slow |
 | about 9:45 pm | Refresh for the day's injury reports, before the usual midnight UK tip-off |
-| hourly, 9:30 am to 11:30 pm | Roster check: rebuilds the plan only if you've added, dropped or moved someone to IR |
+| hourly, around the clock | Check: rebuilds the plan only if you've added, dropped or moved someone to IR, or a new day has started and the plan is still yesterday's |
 
-The roster check means that after you make a move in ESPN, the plan catches up within about an hour without you doing anything. Each check is a single small ESPN request; when nothing has changed it stops there, so the Actions tab will show many short runs where the build step is skipped. That's normal. If a check rebuilds the plan, the Discord summary starts with "Roster change spotted".
+The hourly check means that after you make a move in ESPN, the plan catches up within about an hour without you doing anything. It also catches a new day: as soon as ESPN moves on to the next scoring period, or by 3 am Eastern at the latest (8 am UK in winter), a plan that's still for yesterday is rebuilt. GitHub sometimes starts scheduled runs late or skips them when it's busy, so this is the safety net for the morning run. Each check is a single small ESPN request; when nothing has changed it stops there, so the Actions tab will show many short runs where the build step is skipped. That's normal. If a check rebuilds the plan, the Discord summary starts with "Roster change spotted" or "New day".
+
+If the page is still showing yesterday's plan, a yellow banner at the top says so. Refresh the page (GitHub Pages can serve a cached copy for up to 10 minutes), and if it still hasn't updated, press **Run workflow**.
+
+## Waivers
+Players on waivers are marked as **Claim** rather than **Add**, with the time their claim processes (UK time, then Eastern), on the streaming plan, the pickup list, Free agents by day, Set up next week and the Injury watch tab. The simulations only count their games from the first one that tips off after the claim clears. If ESPN doesn't give a clear time, the plan assumes the usual two days. A claim goes to the team with the best waiver priority, so a planned claim can fail; have a backup add ready.
 
 Add an hour to each in UK summer time. You can also press **Run workflow** any time, for example right after big injury news (the GitHub mobile app works for this). To change the times, edit the `cron` lines at the top of `.github/workflows/daily.yml` (they're in UTC).
 
@@ -179,6 +184,7 @@ Recent form and boosts only affect this week's projections. Deciding whether a r
 - **Inactive repos pause.** GitHub pauses scheduled runs in a repo with no activity for 60 days and emails you first. Click the button in that email, or make any small edit, to keep it going all season.
 - **Scheduled runs can start late** when GitHub is busy. Check the "Updated" time on the page, and always check ESPN for late scratches before games lock.
 - **Positions are ignored.** The plan assumes any healthy player can fill an active spot.
+- **Win chances are estimates.** Each simulated night has its own randomness for every player plus a shared swing for the whole team (pace, overtime, blowouts, cold shooting slates), so comebacks happen about as often as they do in real matchups. A category you lead by a lot with a day left can still show 85 to 90%: that's roughly a 1 in 8 chance of losing it.
 
 ## Try it without ESPN
 ```
