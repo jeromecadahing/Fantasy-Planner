@@ -106,6 +106,7 @@ def plan(data, cfg, plan_):
         free_from = (datetime.fromisoformat(tip) + timedelta(hours=2, minutes=45)).isoformat() if tip else None
         out["moves"].append({
             "add": fa["name"], "add_team": fa["team"], "add_status": fa["status"], "add_days": _days(fa, nd),
+            "add_waiver": fa.get("waiver"),
             "drop": dp["name"] if dp else None, "drop_days": _days(dp, nd) if dp else [],
             "drop_after_game": plays_last, "free_from": free_from, "drop_is_streamer": bool(dp and id(dp) in streamers),
             "starts_gain": s_ - cur_starts, "trend": fa.get("trend"),

@@ -102,13 +102,28 @@ def entries(players, w, frm=0):
     return sorted(es, key=lambda e: -e.prio)
 
 
-def _game_stats(s, k, rng):
-    f = np.clip(1 + 0.18 * rng.standard_normal(k), 0.35, 1.6)
+# Game-to-game spread. PLAYER_SD is each player's own night (minutes, role, attempts); TEAM_SD is shared by
+# everyone on a fantasy team that day (pace, overtime, blowouts, a cold shooting night across the slate),
+# so big swings come in bunches the way they do in real matchups. SHOOT_SD moves each player's make
+# rates a little per game, so hot and cold shooting nights are wider than pure coin-flips.
+PLAYER_SD, TEAM_SD, SHOOT_SD = 0.22, 0.08, 0.10
+
+
+def _game_stats(s, k, rng, team=None):
+    f = 1 + PLAYER_SD * rng.standard_normal(k)
+    if team is not None:
+        f = f * team
+    f = np.clip(f, 0.3, 1.8)
+
+    def rate(m, a):
+        if a <= 0:
+            return np.zeros(k)
+        return np.clip(min(1.0, m / a) * (1 + SHOOT_SD * rng.standard_normal(k)), 0.0, 1.0)
     fga = rng.poisson(s["fga"] * f)
-    fgm = rng.binomial(fga, min(1.0, s["fgm"] / s["fga"]) if s["fga"] > 0 else 0.0)
-    tpm = rng.binomial(fgm, min(1.0, s["tpm"] / s["fgm"]) if s["fgm"] > 0 else 0.0)
+    fgm = rng.binomial(fga, rate(s["fgm"], s["fga"]))
+    tpm = rng.binomial(fgm, rate(s["tpm"], s["fgm"]))
     fta = rng.poisson(s["fta"] * f)
-    ftm = rng.binomial(fta, min(1.0, s["ftm"] / s["fta"]) if s["fta"] > 0 else 0.0)
+    ftm = rng.binomial(fta, rate(s["ftm"], s["fta"]))
     out = np.empty((k, 11))
     out[:, 0], out[:, 1], out[:, 2], out[:, 3], out[:, 4] = fgm, fga, ftm, fta, tpm
     out[:, 5] = 2 * fgm + tpm + ftm
@@ -125,6 +140,7 @@ def sim_team(es, days, sofar, n, rng, slots):
         cand = [e for e in es if e.p["games"][d] and e.frm <= d < e.until and e.p["prob"][d] > 0]
         if not cand:
             continue
+        team = np.clip(1 + TEAM_SD * rng.standard_normal(n), 0.75, 1.25)  # this team's night, per simulation
         probs = np.array([e.p["prob"][d] for e in cand])
         avail = rng.random((n, len(cand))) < probs
         if isinstance(slots, int) or len(cand) <= 0:
@@ -142,7 +158,7 @@ def sim_team(es, days, sofar, n, rng, slots):
             mask = started[:, j]
             k = int(mask.sum())
             if k:
-                tot[mask] += _game_stats(e.p["s"], k, rng)
+                tot[mask] += _game_stats(e.p["s"], k, rng, team[mask])
     return tot
 
 
@@ -292,8 +308,8 @@ def _pickups(data, cfg, me_players, w, days_left, opp_tot):
         moves = sorted((m for m in moves if abs(m[1]) >= 3), key=lambda m: -m[1])
         picks.append({
             "add": x["add"]["name"], "add_team": x["add"]["team"], "trend": x["add"].get("trend"),
-            "status": x["add"]["status"],
-            "games": sum(1 for d in eff_days if x["add"]["games"][d]),
+            "status": x["add"]["status"], "waiver": x["add"].get("waiver"),
+            "games": sum(1 for d in eff_days if x["add"]["games"][d] and x["add"]["prob"][d] > 0),
             "drop": x["drop"]["name"] if x["drop"] else None,
             "drop_games": sum(1 for d in eff_days if x["drop"]["games"][d]) if x["drop"] else 0,
             "win_delta": round((x["r"]["win"] - base["win"]) * 100),
@@ -423,10 +439,13 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
             frm = next((i["frm"] for i in items if i["p"] is drop), 0)
             drop_days = [data["days"][d]["label"].split()[0] for d in days_left if max(frm, data["today_index"]) <= d < t and drop["games"][d]]
         act = max(data["today_index"], t - cfg.add_delay_days)  # day you make the move in ESPN
+        if fa.get("waiver"):
+            act = data["today_index"]  # a waiver claim goes in now; it processes at the clear time
         moves.append({"day": data["days"][act]["label"], "today": act == data["today_index"],
                       "plays_from": data["days"][t]["label"] if act != t else None,
                       "add_tip": (fa.get("tips") or [None] * len(data["days"]))[t] if act == t else None,
                       "add": fa["name"], "add_team": fa["team"], "add_status": fa["status"], "add_days": add_days,
+                      "add_waiver": fa.get("waiver"),
                       "trend": fa.get("trend"), "drop": drop["name"] if drop else None, "drop_days_used": drop_days,
                       "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"])),
                       "alts": m["alts"]})

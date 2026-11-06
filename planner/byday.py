@@ -97,7 +97,7 @@ def _week(label, days, today, me_es, opp_tot, sofar, fa_pool, slots, w, n, seed,
             others = [days[k].split()[0] for k in range(today, len(days))
                       if k != d and _plays(fa, k) and _day_lineup(me_es, k, slots)[2] > 0]
             rows.append({
-                "name": fa["name"], "team": fa["team"], "status": fa["status"],
+                "name": fa["name"], "team": fa["team"], "status": fa["status"], "waiver": fa.get("waiver") if label == "This week" else None,
                 "win_delta": r["win"] - base["win"], "cats_delta": r["cats"] - base["cats"],
                 "up": [(c, round(v * 100)) for c, v in moves if v >= 0.015][:3],
                 "down": [(c, round(v * 100)) for c, v in moves if v <= -0.015][:2],

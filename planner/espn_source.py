@@ -2,7 +2,9 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from espn_api.basketball import League
+import json
+
+from espn_api.basketball import League, Player
 from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
 
 from . import cards
@@ -261,20 +263,72 @@ def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
     ret = getattr(p, "expected_return_date", None)
     games, prob = [], []
     played = team_games.get(p.proTeam, set())
+    tips_of = (team_tips or {}).get(p.proTeam) or {}
+    waiver = _waiver(p)
     for i, d in enumerate(days):
         games.append(d["sp"] in played)
         pr = p_today if i <= today_index else p_later
         if pr == 0 and ret and date.fromisoformat(d["date"]) >= ret:
             pr = 0.6
+        # On waivers: he only plays once the claim has processed. With no clear time from ESPN,
+        # assume the usual two days (today and tomorrow are out).
+        if _blocked(waiver, d["date"], tips_of.get(d["sp"]), unknown_ok=i > today_index + 1):
+            pr = 0.0
         prob.append(pr)
     elig = [x for x in (getattr(p, "eligibleSlots", None) or []) if x and x not in NOT_ACTIVE]
     return {"name": p.name, "id": p.playerId, "team": p.proTeam, "pos": p.position, "elig": elig,
             "status": label, "ir": ir, "games": games, "prob": prob, "s": stats, "long": season_long,
             "trend": trend, "form": form,
-            "tips": [((team_tips or {}).get(p.proTeam) or {}).get(d["sp"]) for d in days],
+            "tips": [tips_of.get(d["sp"]) for d in days], "waiver": waiver,
             "next_games": [d["sp"] in played for d in _CTX["next_days"]],
-            "next_prob": [p_later if not (p_later == 0 and ret and date.fromisoformat(d["date"]) >= ret) else 0.6
+            "next_prob": [0.0 if _blocked(waiver, d["date"], tips_of.get(d["sp"]), unknown_ok=True)
+                          else p_later if not (p_later == 0 and ret and date.fromisoformat(d["date"]) >= ret) else 0.6
                           for d in _CTX["next_days"]]}
+
+
+def _free_agents(lg, size):
+    """Like League.free_agents, but keeps what the library throws away: whether each player is a
+    free agent or on waivers, and when his waiver claim processes."""
+    filters = {"players": {
+        "filterStatus": {"value": ["FREEAGENT", "WAIVERS"]},
+        "filterSlotIds": {"value": []},
+        "limit": size,
+        "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+        "sortDraftRanks": {"sortPriority": 100, "sortAsc": True, "value": "STANDARD"},
+    }}
+    data = lg.espn_request.league_get(params={"view": "kona_player_info", "scoringPeriodId": lg.current_week},
+                                      headers={"x-fantasy-filter": json.dumps(filters)})
+    out = []
+    for e in (data or {}).get("players", []):
+        p = Player(e, lg.year)
+        p.fa_status = e.get("status")  # FREEAGENT or WAIVERS
+        p.waiver_ms = cards.waiver_ms(e)
+        out.append(p)
+    n = sum(1 for p in out if p.fa_status == "WAIVERS")
+    if n:
+        timed = sum(1 for p in out if p.fa_status == "WAIVERS" and p.waiver_ms)
+        print(f"Free agents: {len(out)}, of whom {n} on waivers ({timed} with a clear time from ESPN)")
+    return out
+
+
+def _waiver(p):
+    """{"clears": UTC ISO or None} for a player on waivers, else None."""
+    ms = getattr(p, "waiver_ms", None)
+    if getattr(p, "fa_status", None) != "WAIVERS" and not ms:
+        return None
+    return {"clears": datetime.fromtimestamp(ms / 1000, tz=UTC).isoformat() if ms else None}
+
+
+def _blocked(waiver, day_date, tip, unknown_ok):
+    """True if a waiver player can't play this day: his claim hasn't processed before tip-off."""
+    if not waiver:
+        return False
+    if not waiver["clears"]:
+        return not unknown_ok
+    clears = datetime.fromisoformat(waiver["clears"])
+    if tip:
+        return datetime.fromisoformat(tip) <= clears
+    return date.fromisoformat(day_date) <= clears.astimezone(ET).date()
 
 
 def _with_stats(lg, players):
@@ -293,6 +347,7 @@ def _with_stats(lg, players):
         if q is not None:
             q.lineupSlot = getattr(p, "lineupSlot", "")
             q.injuryStatus = p.injuryStatus or q.injuryStatus
+            q.fa_status, q.waiver_ms = getattr(p, "fa_status", None), getattr(p, "waiver_ms", None)
             out.append(q)
         else:
             out.append(p)
@@ -423,6 +478,7 @@ def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, to
             team_of[p.playerId] = p.proTeam
     for p in fa_pool:
         team_of[p.playerId] = p.proTeam
+    pool_ms = {p.playerId: getattr(p, "waiver_ms", None) for p in fa_pool if getattr(p, "waiver_ms", None)}
 
     out = []
     for pid, why in wanted.items():
@@ -443,11 +499,13 @@ def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, to
             owner = owners[on]
         else:
             owner = "On waivers" if parsed["status"] == "WAIVERS" else "Free agent"
+        ms = (parsed.get("waiver_ms") or pool_ms.get(pid)) if owner == "On waivers" else None
         ret = parsed["ret"]
         start = ret or datetime.now(ET).date().isoformat()
         x = {"id": pid, "name": pl.get("fullName") or lg.player_map.get(pid, str(pid)), "team": team,
              "status": status, "owner": owner, "watch": why == "watch", "mine": owner == "Your team",
              "ret": ret, "own": parsed["own"], "own_change": parsed["own_change"],
+             "waiver_clears": datetime.fromtimestamp(ms / 1000, tz=UTC).isoformat() if ms else None,
              "line": basis, "source": source, "s": cards.as_sim_line(basis) if basis else None,
              "games_left": cards.games_after(team_games, sp_date, team, start), "news": []}
         out.append(x)
@@ -558,7 +616,7 @@ def load(cfg):
 
     next_opp = _next_opp(lg, cfg, opp, others)
 
-    fa_raw = _with_stats(lg, lg.free_agents(size=cfg.fa_pool))
+    fa_raw = _with_stats(lg, _free_agents(lg, cfg.fa_pool))
     fa = [x for x in (_player(p, lg.year, days, today_index, team_games, team_tips=team_tips) for p in fa_raw) if x]
 
     extra = _what_if_players(lg, cfg, days, today_index, team_games, me, opp, fa)
@@ -568,7 +626,7 @@ def load(cfg):
 
     # Injury watch tab: a deeper free-agent pool, so injured stars further down the list are found too.
     try:
-        deep = lg.free_agents(size=max(cfg.fa_pool, 150))
+        deep = _free_agents(lg, max(cfg.fa_pool, 150))
     except Exception:
         deep = fa_raw
     watch, missing = _injury_watch(lg, cfg, me_team, me["players"], deep, sp_date, team_games, today_sp)
@@ -577,6 +635,8 @@ def load(cfg):
     return {
         "league": {"name": lg.settings.name, "week": lg.currentMatchupPeriod},
         "days": days, "today_index": today_index,
+        "plan_day": days[today_index]["date"] if today_index < len(days) else datetime.now(ET).date().isoformat(),
+        "espn_sp": lg.scoringPeriodId,
         "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(counts),
         "ir_slots": int(counts.get("13", 0) or 0), "ir_used": sum(1 for p in me_team.roster if p.lineupSlot == "IR"),
         "injury_watch": watch, "watch_missing": missing,

@@ -4,6 +4,7 @@ import json
 from html import escape
 from zoneinfo import ZoneInfo
 
+from .cards import waiver_text
 from .extras import clock
 from .sim import CATS, fmt_cat
 
@@ -94,6 +95,9 @@ border-bottom:3px solid transparent;padding:10px 12px 9px;cursor:pointer;white-s
 .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--you)}
 .tabs button:focus-visible{outline:2px solid var(--you);outline-offset:-2px;border-radius:4px}
 .tabs .n{font:600 .78rem/1 Barlow,sans-serif;background:var(--opp-soft);color:var(--ink);border-radius:999px;padding:2px 6px;margin-left:5px;vertical-align:2px}
+.stale{background:#fff4d6;color:#5c4400;border:1px solid #e8c766;border-radius:10px;padding:10px 14px;margin:0 0 14px;font-weight:500}
+.wv{color:#8a5a00;font-weight:500}
+@media (prefers-color-scheme:dark){.stale{background:#3a2f12;color:#f3dc9a;border-color:#6b5520}.wv{color:#e7bd5e}}
 .lock{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center;background:var(--surface);
 border:1px solid var(--rule);border-left:5px solid var(--you);border-radius:12px;padding:14px 16px;margin-bottom:16px}
 .lock.soon{border-left-color:var(--opp)}.lock.past{border-left-color:var(--rule)}
@@ -313,6 +317,15 @@ def _tug(res, now=None):
     return "".join(rows)
 
 
+def _wv(w, claim=True):
+    """One sentence about a waiver player: when he clears, and that it's a claim, not an add."""
+    if not w:
+        return ""
+    t = waiver_text(w.get("clears"))
+    return escape(t + (". Put in a claim now; the team with the best waiver priority gets him, and his games "
+                       "before then don’t count." if claim else "."))
+
+
 def _picks(plan):
     if not plan["picks"]:
         return f'<p class="empty">{escape(plan["pick_note"] or "No pickups to suggest.")}</p>'
@@ -324,10 +337,11 @@ def _picks(plan):
         drop = (f'Drop {escape(x["drop"])} ({x["drop_games"]} game{"s" if x["drop_games"] != 1 else ""} left).'
                 if x["drop"] else "Use your open roster spot.")
         extra = f' {escape(x["status"])}.' if x["status"] != "Healthy" else ""
-        trend = f'<p>{escape(x["trend"])}</p>' if x.get("trend") else ""
+        trend = (f'<p class="wv">{_wv(x["waiver"])}</p>' if x.get("waiver") else "") + \
+            (f'<p>{escape(x["trend"])}</p>' if x.get("trend") else "")
         moves = "".join(f'<span class="mv up">{l} +{v}%</span>' for l, v in x["up"]) + \
             "".join(f'<span class="mv down">{l} {v}%</span>' for l, v in x["down"])
-        items.append(f'<li class="pick{" top" if i == 0 and d > 0 else ""}"><div class="ph"><strong>Add {escape(x["add"])}'
+        items.append(f'<li class="pick{" top" if i == 0 and d > 0 else ""}"><div class="ph"><strong>{"Claim" if x.get("waiver") else "Add"} {escape(x["add"])}'
                      f' <span class="dc">{escape(x["add_team"])}</span></strong><span class="delta {cls}">{d:+d}%</span></div>'
                      f'<p>{drop} {x["games"]} game{"s" if x["games"] != 1 else ""} left for him.{extra} '
                      f'Expected categories {x["cats_delta"]:+.2f}.</p>{trend}'
@@ -369,9 +383,10 @@ def _stream(plan):
             drop = f'Drop {escape(m["drop"])}{why}.' + ("" if m["drop_is_streamer"] else " This one is a permanent cut.")
         else:
             drop = "Use your open roster spot."
-        trend = f'<p>{escape(m["trend"])}</p>' if m.get("trend") else ""
+        trend = (f'<p class="wv">{_wv(m["add_waiver"])}</p>' if m.get("add_waiver") else "") + \
+            (f'<p>{escape(m["trend"])}</p>' if m.get("trend") else "")
         h += (f'<li class="step"><div class="sh"><span class="dn">{escape(m["day"])}</span>{when}</div>'
-              f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
+              f'<p class="act"><strong>{"Claim" if m.get("add_waiver") else "Add"} {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {_days_list(m["add_days"])} for you'
               + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}{_alts(m)}</li>')
     h += ('</ol><p class="hint" style="margin-top:10px">Make today’s moves; later steps can change as news comes in.</p>')
@@ -647,7 +662,8 @@ def _nextweek(plan, data):
                     + ("" if m["drop_is_streamer"] else " This one is a permanent cut."))
         else:
             drop = "Use your open roster spot."
-        trend = f'<p>{escape(m["trend"])}</p>' if m.get("trend") else ""
+        trend = (f'<p class="wv">{_wv(m["add_waiver"])}</p>' if m.get("add_waiver") else "") + \
+            (f'<p>{escape(m["trend"])}</p>' if m.get("trend") else "")
         fa = next((p for p in data["fa"] if p["name"] == m["add"]), None)
         if fa is not None:
             x = _sched(fa, data)
@@ -660,7 +676,7 @@ def _nextweek(plan, data):
             if extra:
                 trend = f'<p>{escape(". ".join(extra))}.</p>' + trend
         h += (f'<li class="step"><div class="sh"><span class="dn">{day}</span>{tag}</div>'
-              f'<p class="act"><strong>Add {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
+              f'<p class="act"><strong>{"Claim" if m.get("add_waiver") else "Add"} {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {len(m["add_days"])} game{"s" if len(m["add_days"]) != 1 else ""} next week: '
               f'{escape(", ".join(m["add_days"]))}.</p>{trend}</li>')
     h += "</ol>" + _fa_cross_html(data)
@@ -1138,6 +1154,8 @@ def _byday(plan, label):
                 tags.append('<span class="bd-tag" title="Plays the next day too">B2B, 1st night</span>')
             if r["status"] != "Healthy":
                 tags.append(f'<span class="bd-tag bd-b2b2">{escape(r["status"])}</span>')
+            if r.get("waiver"):
+                tags.append(f'<span class="bd-tag bd-b2b2" title="{_wv(r["waiver"], claim=False)}">Waivers</span>')
             if not r["fills"]:
                 tags.append('<span class="bd-tag" title="Your lineup is full: he’d replace your weakest starter">Upgrade</span>')
             up = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["up"])
@@ -1145,7 +1163,8 @@ def _byday(plan, label):
             moves = " · ".join(x for x in (up, down) if x)
             also = (f'<p class="dc">Also plays on your other open days: {escape(", ".join(r["open_days"]))}</p>'
                     if r["open_days"] else "")
-            trend = f'<p class="dc">{escape(r["trend"])}</p>' if r.get("trend") else ""
+            trend = (f'<p class="dc">{_wv(r["waiver"])}</p>' if r.get("waiver") else "") + \
+                (f'<p class="dc">{escape(r["trend"])}</p>' if r.get("trend") else "")
             dw = round(r["win_delta"] * 100)
             tone = "pos" if dw > 0 else "neg" if dw < 0 else "flat"
             body += (f'<div class="bd-row"><div class="bd-h"><strong>{escape(r["name"])}</strong> '
@@ -1177,6 +1196,8 @@ def _injury_tab(data):
     cards_ = ""
     for x in watch:
         facts = [f'<span>Status <b>{escape(x["status"])}</b></span>', f'<span><b>{escape(x["owner"])}</b></span>']
+        if x["owner"] == "On waivers":
+            facts.append(f'<span><b>{escape(waiver_text(x.get("waiver_clears")).replace("On waivers, c", "C"))}</b></span>')
         if x.get("ret"):
             d = x["days_out"]
             when = "today" if d == 0 else f"in {d} days" if d and d > 0 else "date passed, check news"
@@ -1258,6 +1279,27 @@ tick();setInterval(tick,30000);
 })();"""
 
 
+def _plan_label(data):
+    try:
+        return date.fromisoformat(data.get("plan_day") or "").strftime("%a %b %-d")
+    except ValueError:
+        return ""
+
+
+STALE_JS = r"""
+(function(){var el=document.getElementById('stale');if(!el||!el.dataset.day)return;
+function check(){var p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()),o={};
+ p.forEach(function(x){o[x.type]=x.value;});
+ // A fantasy day is over once its late games are final, about 3 am Eastern.
+ var d=new Date(Date.UTC(+o.year,+o.month-1,+o.day));if(+o.hour<3)d.setUTCDate(d.getUTCDate()-1);
+ var today=d.toISOString().slice(0,10);
+ if(today>el.dataset.day){el.hidden=false;el.textContent='This plan is for '+el.dataset.label+
+  '. Today\u2019s update hasn\u2019t come through yet; it usually lands within the hour. If it doesn\u2019t, press Run workflow in the Actions tab. Pull to refresh to check.';}
+ else el.hidden=true;}
+check();setInterval(check,60000);})();
+"""
+
+
 def render(data, plan):
     res = plan["result"]
     me, opp = data["me"]["name"], data["opp"]["name"]
@@ -1278,6 +1320,7 @@ def render(data, plan):
 <style>{CSS}</style></head><body><div class="wrap">
 <h1>Matchup plan</h1>
 <p class="sub">{escape(data["league"]["name"])}, week {data["league"]["week"]}. Updated {now}.</p>
+<p class="stale" id="stale" hidden data-day="{escape(data.get("plan_day") or "")}" data-label="{escape(_plan_label(data))}"></p>
 {_lock(plan)}
 <nav class="tabs" role="tablist" aria-label="Sections">
 <button type="button" role="tab" data-tab="plan" aria-controls="tab-plan">This week</button>
@@ -1314,7 +1357,7 @@ def render(data, plan):
 <p class="foot">Every remaining game is simulated thousands of times from recent averages, with injury status setting each
 player’s chance to play and lineups following your league’s position slots. Updated each morning after the night’s games,
 and within an hour of any roster move. Always check ESPN for late scratches before games lock.</p>
-<script>{PAGE_JS}</script>
+<script>{PAGE_JS}</script><script>{STALE_JS}</script>
 </div></body></html>"""
 
 
@@ -1345,7 +1388,7 @@ def summary(data, plan):
         lines.append(f"Next week vs {nm['name']}: projected {nm['cats']:.1f} to {9 - nm['cats']:.1f}, "
                      f"{round(nm['win'] * 100)}% to win.")
     nw = plan.get("nextweek") or {}
-    nw_lines = [f"{'TODAY ' if nw.get('today') else ''}{nw['day']}, for next week: add {m['add']}"
+    nw_lines = [f"{'TODAY ' if nw.get('today') else ''}{nw['day']}, for next week: {'claim' if m.get('add_waiver') else 'add'} {m['add']}"
                 + (f", drop {m['drop']}" if m["drop"] else "")
                 + (f" after his game (from about {clock(m['free_from'])} UK)" if m.get("free_from") else "")
                 for m in nw.get("moves") or []]
@@ -1354,13 +1397,16 @@ def summary(data, plan):
         lines.append(f"Streaming plan: {round(st['before'] * 100)}% -> {round(st['after'] * 100)}% to win")
         for m in st["moves"]:
             drop = f", drop {m['drop']}" if m["drop"] else ""
-            lines.append(f"{'TODAY ' if m['today'] else ''}{m['day']}: add {m['add']}{drop}")
+            verb = "claim" if m.get("add_waiver") else "add"
+            when = (" (" + waiver_text(m["add_waiver"].get("clears")).replace("On waivers, c", "c") + ")"
+                    if m.get("add_waiver") else "")
+            lines.append(f"{'TODAY ' if m['today'] else ''}{m['day']}: {verb} {m['add']}{when}{drop}")
         return "\n".join(lines + nw_lines)
     lines += nw_lines
     if plan["picks"] and plan["picks"][0]["win_delta"] > 0:
         x = plan["picks"][0]
         drop = f", drop {x['drop']}" if x["drop"] else ""
-        lines.append(f"Top add: {x['add']}{drop} ({x['win_delta']:+d}% win chance)")
+        lines.append(f"Top {'claim' if x.get('waiver') else 'add'}: {x['add']}{drop} ({x['win_delta']:+d}% win chance)")
     elif plan["pick_note"]:
         lines.append(plan["pick_note"])
     return "\n".join(lines)

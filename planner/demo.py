@@ -132,6 +132,15 @@ def load():
             p["next_games"] = [bool(g) for g in nxt["ABCDEF"[(i + k + 1) % 6]]]
             p["next_prob"] = [0.0 if p["status"] == "Out" else 1.0] * 7
     data["next_opp"] = {"name": data["others"][0]["name"], "players": data["others"][0]["players"]}
+    data["plan_day"] = days[data["today_index"]]["date"]
+    # One free agent on waivers, clearing at 4 am Eastern tomorrow, so he can't play today.
+    ti = data["today_index"]
+    for p in data["fa"]:
+        p.setdefault("waiver", None)
+    zeke = data["fa"][0]
+    if ti + 1 < len(days):
+        zeke["waiver"] = {"clears": f'{days[ti + 1]["date"]}T09:00:00+00:00'}
+        zeke["prob"] = [0.0 if i <= ti else pr for i, pr in enumerate(zeke["prob"])]
     return data
 
 

@@ -42,12 +42,16 @@ def main():
                    "nextweek": plan["nextweek"], "byday": plan["byday"],
                    "nextmatch": {k: v for k, v in (plan.get("nextmatch") or {}).items() if k in ("name", "win", "cats", "catP")},
                    "roster_fp": data.get("roster_fp"),
+                   "day": data.get("plan_day"), "espn_sp": data.get("espn_sp"),
                    "injury_watch": [{k: x.get(k) for k in ("name", "team", "status", "owner", "ret", "verdict", "why")}
                                     for x in data.get("injury_watch") or []]}, f, indent=1)
 
     text = report.summary(data, plan)
-    if os.environ.get("TRIGGER") == "roster-change":
+    trigger = os.environ.get("TRIGGER")
+    if trigger == "roster-change":
         text = "Roster change spotted, so the plan has been rebuilt.\n" + text
+    elif trigger == "new-day":
+        text = "New day: the scheduled update hadn't run yet, so the plan has been rebuilt.\n" + text
     print(text)
     if cfg.discord_webhook:
         try:

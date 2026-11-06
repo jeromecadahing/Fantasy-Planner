@@ -69,7 +69,35 @@ def parse(entry, year):
     out["injured"] = bool(pl.get("injured"))
     out["status"] = entry.get("status") if isinstance(entry, dict) else None  # FREEAGENT, WAIVERS, ONTEAM
     out["on_team"] = entry.get("onTeamId") if isinstance(entry, dict) else None
+    out["waiver_ms"] = waiver_ms(entry, pl)
     return out
+
+
+def waiver_text(clears):
+    """'Clears Sat 9 am UK (4 am ET)' for a waiver clear time (UTC ISO string or ms), or a fallback."""
+    if not clears:
+        return "On waivers (ESPN didn't give a clear time; usually about 2 days after the drop)"
+    d = (datetime.fromtimestamp(clears / 1000, tz=ZoneInfo("UTC")) if isinstance(clears, (int, float))
+         else datetime.fromisoformat(clears))
+    uk, et = d.astimezone(ZoneInfo("Europe/London")), d.astimezone(ET)
+
+    def t(x, day):
+        return (x.strftime("%a ") if day else "") + x.strftime("%-I:%M %p").lower().replace(":00 ", " ")
+    return f"On waivers, clears {t(uk, True)} UK ({t(et, uk.date() != et.date())} ET)"
+
+
+def waiver_ms(entry, pl=None):
+    """When ESPN processes the waiver claim on this player (ms since 1970, UTC), or None.
+
+    ESPN puts waiverProcessDate on the player-pool entry for anyone in the WAIVERS state; some
+    views nest it under the player instead, so both places are checked.
+    """
+    for src in (entry, pl or (entry.get("player") if isinstance(entry, dict) else None)):
+        if isinstance(src, dict):
+            v = src.get("waiverProcessDate")
+            if isinstance(v, (int, float)) and v > 0:
+                return int(v)
+    return None
 
 
 def fetch(lg, ids):

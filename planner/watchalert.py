@@ -93,6 +93,7 @@ def snapshot(lg, cfg, ids):
         out[str(pid)] = {
             "name": pl.get("fullName") or lg.player_map.get(pid, str(pid)),
             "status": status, "ret": p["ret"], "owner": owner, "own": p["own"],
+            "clears": p.get("waiver_ms") if owner == "On waivers" else None,
             "news": latest["headline"] if latest else None,
             "story": latest["story"] if latest else None,
         }
@@ -124,7 +125,8 @@ def changes(old, new):
         elif new["owner"] == "Free agent":
             lines.append(f"🔓 **{name}** was dropped by {old['owner']} and is a free agent again")
         elif new["owner"] == "On waivers":
-            lines.append(f"⏳ **{name}** is on waivers (dropped by {old['owner']})")
+            when = cards.waiver_text(new.get("clears")).replace("On waivers, clears", "clears")
+            lines.append(f"⏳ **{name}** is on waivers (dropped by {old['owner']}); {when}")
         else:
             lines.append(f"🚨 **{new['owner']}** picked up **{name}**")
     for it in new.get("stories") or []:
@@ -152,7 +154,9 @@ def advice(old, new):
     if new["owner"] in ("Free agent", "On waivers") and (better or rising or old["owner"] != new["owner"]):
         verb = "Claim" if new["owner"] == "On waivers" else "Add"
         where = " and put him on IR" if new["status"] in ("Out", "Injured") else ""
-        return f"→ {verb} him now{where} before someone else does."
+        due = (f" Claims process {cards.waiver_text(new['clears']).split('clears ', 1)[1]}."
+               if new["owner"] == "On waivers" and new.get("clears") else "")
+        return f"→ {verb} him now{where} before someone else does.{due}"
     if new["owner"] == "Your team" and new["status"] == "Healthy" and old["status"] != "Healthy":
         return "→ He's yours: move him off IR into your lineup (you'll need a free bench spot)."
     return None
