@@ -21,6 +21,8 @@ from .whatif import _protected, _season_ranks, season_value
 # Chance he suits up on a given night once he's back. Players returning from injury often sit one
 # night of a back-to-back or come off the bench at first, so this is a little under a healthy player's.
 RETURN_PROB = 0.85
+# The second night of a back-to-back: teams often rest a player who's just back from injury.
+B2B_PROB = 0.55
 MAX_PLAYERS = 8
 MAX_DROPS = 3
 
@@ -70,8 +72,19 @@ def _claim_blocks(x, data):
     return a, b
 
 
-def _variant(base, this, nxt, opt, n_days, blocks=(0, 0)):
-    """A copy of the player who's out until the chosen return day, then plays most nights."""
+def _b2b_second(games, dates):
+    """For each day, True if it's the second night of a back-to-back (a game the calendar day before)."""
+    out = []
+    for i, g in enumerate(games):
+        prev = i > 0 and games[i - 1] and dates[i - 1] and dates[i] and \
+            (date.fromisoformat(dates[i]) - date.fromisoformat(dates[i - 1])).days == 1
+        out.append(bool(g and prev))
+    return out
+
+
+def _variant(base, this, nxt, opt, n_days, blocks=(0, 0), b2b=None):
+    """A copy of the player who's out until the chosen return day, then plays most nights
+    (fewer on the second night of a back-to-back)."""
     q = dict(base)
     q["ir"] = False
     q["games"], q["next_games"] = list(this), list(nxt)
@@ -85,6 +98,9 @@ def _variant(base, this, nxt, opt, n_days, blocks=(0, 0)):
         q["prob"], q["next_prob"] = [0.0] * n_days, [0.0] * len(nxt)
     q["prob"] = [0.0 if d < blocks[0] else pr for d, pr in enumerate(q["prob"])]
     q["next_prob"] = [0.0 if j < blocks[1] else pr for j, pr in enumerate(q["next_prob"])]
+    if b2b:
+        q["prob"] = [min(pr, B2B_PROB) if pr and b2b[0][d] else pr for d, pr in enumerate(q["prob"])]
+        q["next_prob"] = [min(pr, B2B_PROB) if pr and b2b[1][j] else pr for j, pr in enumerate(q["next_prob"])]
     return q
 
 
@@ -122,7 +138,9 @@ def build(data, cfg, plan, opp_tot):
 
     ranks = _season_ranks(me_active)
     droppable = sorted((p for p in me_active if not _protected(p, ranks, cfg)), key=season_value)[:MAX_DROPS]
-    ir_free = max(0, (data.get("ir_slots") or 0) - (data.get("ir_used") or 0))
+    ir_slots = data.get("ir_slots") or 0
+    ir_free = max(0, ir_slots - (data.get("ir_used") or 0))
+    ir_names = [p["name"] for p in all_mine if p["ir"]]
     open_spot = len(me_active) < cfg.roster_size
 
     opts = _options(data)
@@ -135,6 +153,10 @@ def build(data, cfg, plan, opp_tot):
         if this is None:
             continue
         blocks = _claim_blocks(x, data)
+        # Back-to-backs, judged across the join between this week and next (Sun then Mon counts).
+        all_dates = [d["date"] for d in days] + [d["date"] for d in nd]
+        sec = _b2b_second(list(this) + list(nxt), all_dates)
+        b2b = (sec[:n_days], sec[n_days:])
         base = dict(own) if own else {"name": x["name"], "team": team, "id": x.get("id"), "elig": None,
                                       "status": x["status"], "s": x["s"], "long": x["s"], "tips": [None] * n_days}
 
@@ -142,8 +164,17 @@ def build(data, cfg, plan, opp_tot):
             drops = [{"label": "He’s already on your team", "kind": "mine", "lost": 0, "lost_next": 0}]
         else:
             drops = []
-            if ir_free and x["status"] == "Out":
-                drops.append({"label": "Put him in your free IR slot", "kind": "ir"})
+            # IR is always offered, so you can see what a stash costs when nobody has to go. If it isn't
+            # possible right now, the page says why.
+            why_not = []
+            if not ir_slots:
+                why_not.append("ESPN didn’t report an IR slot in your league")
+            elif not ir_free:
+                why_not.append(f"your IR slot{'s are' if ir_slots > 1 else ' is'} taken by {', '.join(ir_names) or 'someone'}")
+            if x["status"] != "Out":
+                why_not.append(f"ESPN only allows Out players on IR and he’s listed as {x['status']}")
+            drops.append({"label": "Put him on IR (no drop)" + ("" if not why_not else " – not possible right now"),
+                          "kind": "ir", "why_not": why_not})
             if open_spot:
                 drops.append({"label": "Use your open roster spot", "kind": "open"})
             for p in droppable:
@@ -172,7 +203,7 @@ def build(data, cfg, plan, opp_tot):
             tw, nw = {}, {}
             row = {"w": [], "c": [], "nw": [], "nc": []}
             for o in opts:
-                v = _variant(base, this, nxt, o, n_days, blocks)
+                v = _variant(base, this, nxt, o, n_days, blocks, b2b)
                 k_this = o["i"] if o["week"] == "this" else "out"
                 if k_this not in tw:
                     tw[k_this] = this_week(others_es + [Entry(v, w, frm=0 if mine else eff)])
@@ -189,16 +220,24 @@ def build(data, cfg, plan, opp_tot):
 
         g_this, g_next = [], []
         for o in opts:
-            v = _variant(base, this, nxt, o, n_days, blocks)
+            v = _variant(base, this, nxt, o, n_days, blocks, b2b)
             g_this.append(sum(1 for d in days_left if v["games"][d] and v["prob"][d] > 0 and (mine or d >= eff)))
             g_next.append(sum(1 for g, pr in zip(v["next_games"], v["next_prob"]) if g and pr > 0))
+        col_games, col_b2b = [], []
+        for o in opts:
+            if o["week"] == "this":
+                col_games.append(bool(this[o["i"]])); col_b2b.append(b2b[0][o["i"]])
+            elif o["week"] == "next":
+                col_games.append(bool(nxt[o["i"]])); col_b2b.append(b2b[1][o["i"]])
+            else:
+                col_games.append(False); col_b2b.append(False)
         ret_label = date.fromisoformat(x["ret"]).strftime("%a %b %-d") if x.get("ret") else None
         players.append({
             "name": x["name"], "team": team, "owner": x["owner"], "status": x["status"], "mine": mine,
             "verdict": x.get("verdict"), "ret": ret_label, "default": _default(opts, x),
             "clears": x.get("waiver_clears"),
             "drops": [{k: v for k, v in dp.items() if k != "p"} for dp in drops],
-            "res": res, "g": g_this, "ng": g_next,
+            "res": res, "g": g_this, "ng": g_next, "games": col_games, "b2b": col_b2b,
         })
     if not players:
         return None
@@ -206,4 +245,4 @@ def build(data, cfg, plan, opp_tot):
             "base": {"w": round(base_w * 1000), "c": round(base_c * 100),
                      "nw": None if base_nw is None else round(base_nw * 1000),
                      "nc": None if base_nc is None else round(base_nc * 100)},
-            "next_name": nm["name"] if nm else None, "return_prob": RETURN_PROB}
+            "next_name": nm["name"] if nm else None, "return_prob": RETURN_PROB, "b2b_prob": B2B_PROB}

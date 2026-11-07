@@ -110,7 +110,8 @@ border-bottom:3px solid transparent;padding:10px 12px 9px;cursor:pointer;white-s
 border:1px solid var(--rule);border-radius:6px;padding:5px 7px;cursor:pointer;min-width:3.4rem}
 .sttab button i{display:block;font:600 .62rem/1 Barlow,sans-serif;font-style:normal;color:var(--you);margin-top:2px}
 .sttab button:focus-visible{outline:2px solid var(--you);outline-offset:2px}
-.sttab .sel{background:var(--you-soft)}.sttab th.sel button{background:var(--you);color:var(--on-you);border-color:var(--you)}
+.sttab .sel{background-color:var(--you-soft)}
+.sttab td small{display:block}.sttab tr.st-sch td{padding-top:8px}.sttab th.sel button{background:var(--you);color:var(--on-you);border-color:var(--you)}
 .sttab th.sel button i{color:var(--on-you)}
 .lock{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center;background:var(--surface);
 border:1px solid var(--rule);border-left:5px solid var(--you);border-radius:12px;padding:14px 16px;margin-bottom:16px}
@@ -202,7 +203,17 @@ table.sc th.sc-d span{display:block}table.sc th.sc-d small{display:block;font-we
 table.sc .sc-nx{border-left:2px solid var(--rule)}
 table.sc th.sc-wk{text-align:center;font-size:.85rem;padding-bottom:2px}
 table.sc .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--you)}
-table.sc .dot.b2b{background:transparent;border:2.5px solid var(--opp);width:11px;height:11px}
+table.sc .dot.b2b,.b2b-key .dot.b2b,.sttab .dot.b2b{background:var(--warn);position:relative;z-index:1}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--you);vertical-align:middle}
+table.sc td .dot,.sttab td .dot{display:block;margin:0 auto}
+td.bb1,td.bb2{background-repeat:no-repeat;background-position:0 8.5px;background-size:100% 5px}
+.sttab td.bb1,.sttab td.bb2{background-position:0 10.5px}
+td.bb1{background-image:linear-gradient(to right,transparent 50%,var(--warn) 50%)}
+td.bb2{background-image:linear-gradient(to left,transparent 50%,var(--warn) 50%)}
+td.bb1.bb2{background-image:linear-gradient(var(--warn),var(--warn))}
+td.bb2 small{display:block;font:700 .66rem/1 Barlow,sans-serif;color:var(--warn);margin-top:3px}
+.b2b-key{display:inline-flex;align-items:center;margin-right:4px;background:linear-gradient(var(--warn),var(--warn)) center/60% 4px no-repeat}
+.b2b-key .dot{margin:0 3px}
 table.sc td.sc-out{color:var(--bad);font-weight:700}
 table.sc td.sc-none{background:repeating-linear-gradient(135deg,var(--field),var(--field) 4px,transparent 4px,transparent 8px)}
 table.sc th.sc-none{color:var(--muted);font-weight:500}
@@ -848,6 +859,9 @@ def _sched(p, data):
         prev = by_date.get(c["date"] - timedelta(days=1))
         c["b2b"] = bool(c["ok"] and prev and prev["ok"])
         b2b += c["b2b"]
+    for c in cells:
+        nxt = by_date.get(c["date"] + timedelta(days=1))
+        c["b2b1"] = bool(nxt and nxt["b2b"])
     last = [c for c in cells if c["week"] == 0 and not c["none"]]
     first = [c for c in cells if c["week"] == 1 and not c["none"]]
     cross = bool(last and first and last[-1]["ok"] and first[0]["ok"]
@@ -855,6 +869,16 @@ def _sched(p, data):
     return {"cells": cells, "this": sum(c["ok"] for c in cells if c["week"] == 0),
             "next": sum(c["ok"] for c in cells if c["week"] == 1), "b2b": b2b, "cross": cross,
             "b2b_next": sum(c["b2b"] for c in cells if c["week"] == 1)}
+
+
+def _b2b_td(cls, first, second):
+    """A game cell that's part of a back-to-back: an amber dot joined to the other night by a bar."""
+    title = ("Back-to-back, middle night" if first and second else
+             "Back-to-back, 1st night (plays tomorrow too)" if first else "Back-to-back, 2nd night: rest risk")
+    side = " bb1" if first else ""
+    side += " bb2" if second else ""
+    label = "<small>2nd</small>" if second and not first else ""
+    return f'<td class="{cls}{side}" title="{title}"><i class="dot b2b"></i>{label}</td>'
 
 
 def _day_heads(cols):
@@ -913,8 +937,8 @@ def _schedule_section(data):
                 tds += f'<td class="{cls} sc-none" title="No NBA games"></td>'
             elif c["game"] and not c["ok"]:
                 tds += f'<td class="{cls} sc-out" title="Game, but ruled out">×</td>'
-            elif c["b2b"]:
-                tds += f'<td class="{cls}" title="Second night of a back-to-back"><i class="dot b2b"></i></td>'
+            elif c["b2b"] or c["b2b1"]:
+                tds += _b2b_td(cls, c["b2b1"], c["b2b"])
             elif c["ok"]:
                 tds += f'<td class="{cls}" title="Game"><i class="dot"></i></td>'
             else:
@@ -928,7 +952,7 @@ def _schedule_section(data):
             f'<strong>{escape(_join_words(both))}</strong>.</p>' if both else
             f'<p class="lift" style="font-size:1rem">None of your players has games on both {escape(a)} and {escape(b)}.</p>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>Schedule</h2>{line}'
-            f'<p class="hint">Ringed dot: second night of a back-to-back. ×: ruled out. Grey column: no NBA games that day.</p>'
+            f'<p class="hint"><span class="b2b-key"><i class="dot b2b"></i><i class="dot b2b"></i></span> Amber, joined: a back-to-back, with the second night (rest risk) marked “2nd”. ×: ruled out. Striped column: no NBA games that day.</p>'
             f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{rows}</tbody></table></div></section>')
 
 
@@ -971,8 +995,8 @@ def _teams_section(data):
             cls = "sc-c" + (" sc-nx" if c["week"] == 1 and (k == 0 or cols[k - 1]["week"] == 0) else "")
             if c["none"]:
                 cells += f'<td class="{cls} sc-none" title="No NBA games"></td>'
-            elif r["second"][k]:
-                cells += f'<td class="{cls}"><i class="dot b2b"></i></td>'
+            elif r["second"][k] or (k + 1 < len(cols) and r["second"][k + 1]):
+                cells += _b2b_td(cls, k + 1 < len(cols) and r["second"][k + 1], r["second"][k])
             elif r["g"][k]:
                 cells += f'<td class="{cls}"><i class="dot"></i></td>'
             else:
@@ -989,7 +1013,7 @@ def _teams_section(data):
     head2 = (f'<tr><th>Team</th>{_day_heads(cols)}<th>This wk</th><th>Next wk</th>'
              f'<th style="text-align:left">Back-to-backs next week</th><th>{escape(names[0])}+{escape(names[1])}</th></tr>')
     return (f'<section class="panel" style="margin-bottom:18px"><h2>NBA teams, this week and next</h2>{line}'
-            f'<p class="hint">Ringed dot: second night of a back-to-back. Grey column: no NBA games that day. '
+            f'<p class="hint"><span class="b2b-key"><i class="dot b2b"></i><i class="dot b2b"></i></span> Amber, joined: a back-to-back, with the second night (rest risk) marked “2nd”. Striped column: no NBA games that day. '
             f'Scroll sideways for more days.</p>'
             f'<div class="scroll"><table class="st sc"><thead>{head1}{head2}</thead><tbody>{body}</tbody></table></div></section>')
 
@@ -1207,7 +1231,8 @@ function fillRoom(){var p=S.players[+P.value];R.innerHTML='';p.drops.forEach(fun
   R.disabled=p.drops.length<2;k=p.default;}
 function table(){
  var p=S.players[+P.value],r=p.res[+R.value],b=S.base,h1='<tr><th></th>',h2='<tr><th scope="row">Back on</th>',rw='<tr><th scope="row">Win this week<small>now '+pc(b.w)+'%</small></th>',
-  rn='<tr><th scope="row">Win next week<small>'+(S.next_name?'vs '+esc(S.next_name)+', now '+pc(b.nw)+'%':'schedule not out yet')+'</small></th>',rg='<tr><th scope="row">His games<small>this week / next</small></th>';
+  rn='<tr><th scope="row">Win next week<small>'+(S.next_name?'vs '+esc(S.next_name)+', now '+pc(b.nw)+'%':'schedule not out yet')+'</small></th>',rg='<tr><th scope="row">His games<small>this week / next</small></th>',
+  rs='<tr class="st-sch"><th scope="row">His team plays<small>amber, joined: back-to-back</small></th>';
  var groups={this:'This week',next:'Next week',later:'Later'},last=null,span=0,heads=[];
  S.opts.forEach(function(o){if(o.week!==last){heads.push({w:o.week,n:1});last=o.week;}else heads[heads.length-1].n++;});
  heads.forEach(function(g){h1+='<th colspan="'+g.n+'" class="grp">'+groups[g.w]+'</th>';});
@@ -1216,8 +1241,10 @@ function table(){
   h2+='<th class="'+sel+'"><button type="button" data-k="'+i+'" aria-pressed="'+(i===k)+'">'+lab+espn+'</button></th>';
   var dw=pc(r.w[i])-pc(b.w);rw+='<td class="'+sel+'"><b class="'+tone(dw)+'">'+pc(r.w[i])+'%</b><small>'+sg(dw)+'</small></td>';
   if(r.nw[i]==null)rn+='<td class="'+sel+'">–</td>';else{var dn=pc(r.nw[i])-pc(b.nw);rn+='<td class="'+sel+'"><b class="'+tone(dn)+'">'+pc(r.nw[i])+'%</b><small>'+sg(dn)+'</small></td>';}
-  rg+='<td class="'+sel+'">'+p.g[i]+' / '+p.ng[i]+'</td>';});
- T.innerHTML='<table><thead>'+h1+'</tr>'+h2+'</tr></thead><tbody>'+rw+'</tr>'+rn+'</tr>'+rg+'</tr></tbody></table>';
+  rg+='<td class="'+sel+'">'+p.g[i]+' / '+p.ng[i]+'</td>';
+  var f=i+1<p.b2b.length&&p.b2b[i+1],sc=p.b2b[i],cl=sel+(f?' bb1':'')+(sc?' bb2':'');
+  rs+=p.games[i]?'<td class="'+cl+'" title="'+(sc?'Back-to-back, 2nd night: rest risk':f?'Back-to-back, 1st night':'Game')+'"><i class="dot'+(f||sc?' b2b':'')+'"></i>'+(sc&&!f?'<small>2nd</small>':'')+'</td>':'<td class="'+sel+'"></td>';});
+ T.innerHTML='<table><thead>'+h1+'</tr>'+h2+'</tr></thead><tbody>'+rs+'</tr>'+rw+'</tr>'+rn+'</tr>'+rg+'</tr></tbody></table>';
  T.querySelectorAll('button[data-k]').forEach(function(bt){bt.onclick=function(){k=+bt.dataset.k;table();};});
  reveal();
  summary(p,r);
@@ -1243,9 +1270,13 @@ function summary(p,r){
  else if(ok<0)verdict='Even back today, this way of making room costs you more than he adds over these two weeks. Stash him only if you’re playing for later in the season, or try another way to make room.';
  else verdict='Across both weeks, the stash pays for itself if he’s back by <strong>'+esc(S.opts[ok].label)+'</strong>. Any later and you’re giving up more than he brings, at least until the week after.';
  h+='<p>'+verdict+'</p>';
+ if(dp.kind==='ir'&&dp.why_not&&dp.why_not.length)h='<p class="warn"><strong>Can\u2019t do this right now:</strong> '+esc(dp.why_not.join('; '))+'. The numbers show what it would be worth if you could.</p>'+h;
+ // Back-to-backs from his return day on.
+ var pairs=[];if(o.week!=='later'){for(var j=k+1;j<S.opts.length;j++){if(p.b2b[j])pairs.push(S.opts[j-1].label.split(' ')[0]+'\u2013'+S.opts[j].label.split(' ')[0]);}}
+ if(pairs.length)h+='<p><span class="bd-tag bd-b2b2">B2B</span> '+pairs.length+' back-to-back'+(pairs.length>1?'s':'')+' after he\u2019s back: '+pairs.join(', ')+'. On second nights he\u2019s counted at '+Math.round(S.b2b_prob*100)+'% to play, since teams often rest players just back from injury.</p>';
  var notes=[];
  if(dp.kind==='drop')notes.push(esc(dp.label.replace('Drop ',''))+' gives up '+gm(dp.lost)+' this week and '+gm(dp.lost_next)+' next week, and the drop is permanent.');
- if(dp.kind==='ir')notes.push('ESPN only allows Out players in IR. When he’s back you’ll need a bench spot to activate him.');
+ if(dp.kind==='ir')notes.push('No one is dropped, so this is the cost of the stash alone. When he\u2019s back you\u2019ll need a bench spot to activate him.');
  if(p.owner==='On waivers')notes.push('He’s on waivers, so this is a claim; the simulation doesn’t count games before it clears.');
  if(p.ret)notes.push('ESPN’s estimate is '+esc(p.ret)+', and these often move.');else notes.push('ESPN hasn’t given a return date.');
  notes.push('Once back he’s counted as playing about '+Math.round(S.return_prob*100)+'% of his games, at his healthy per-game numbers. No other moves are assumed on either side.');
