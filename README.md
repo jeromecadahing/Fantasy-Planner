@@ -135,6 +135,13 @@ It then gives a verdict:
 
 To change who's tracked, set the `WATCH_PLAYERS` variable (below), for example `Jimmy Butler, Ja Morant`.
 
+## Stash simulator
+At the top of the **Injuries** tab. Pick an injured player (free agents and waiver players from the Injury watch list, plus your own injured players) and how you'd make room for him: putting him on IR (no drop), an open roster spot, or dropping one of your weakest players. The IR option is always there so you can see the cost of the stash on its own; if your IR slot is taken or he isn't listed as Out, it says so. A table then shows, for every possible return day this week and next week, your chance to win each week and how many games he'd play for you. ESPN's return estimate is marked and picked first; tap any other day to see what happens if he's back sooner or later.
+
+Underneath, it tells you the latest return day where the stash still pays for itself over the two weeks, counting the games the dropped player gives up. A row above the numbers shows his team's games, with back-to-backs in amber. Once back, he's counted at his healthy per-game numbers and as playing about 85% of his games, and 55% on the second night of a back-to-back, since teams often ease players in. Waiver players don't play before their claim clears. No other moves are assumed for you or your opponents, so a stash that looks costly next week may be fine if you'd stream that spot anyway.
+
+Everything is simulated when the page is built, using the What-if settings (`WHATIF_SIMS`), so it answers instantly. It covers up to 8 players and adds up to about half a minute to each run.
+
 ## What-if scenarios
 The page has a **What if…** section. Pick a start day (today or any later day in the matchup), a free agent and who you'd drop, and it shows how your chance to win the week and each category would change. Every combination is simulated when the page is built, so it answers instantly. Early in the week this adds up to about a minute to each run.
 
