@@ -68,6 +68,20 @@ td:first-child{color:var(--muted);white-space:nowrap}
 .alts{margin:6px 0 0;font-size:.9rem}.alts summary{cursor:pointer;color:var(--muted)}
 .alts ul{margin:4px 0 0;padding-left:18px}.alts li{margin:2px 0}
 .tag.now{background:var(--you);border-color:var(--you);color:var(--on-you)}
+.fx{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 0;padding:7px 9px;background:var(--field);border-radius:8px;font-size:.88rem}
+.fx b{font:700 1rem/1 "Barlow Condensed","Arial Narrow",sans-serif}.fx .sep{color:var(--rule)}
+.chip.add{background:transparent;border:1.5px solid var(--good);color:var(--good)}
+.chip.add::before{content:"+ ";font-weight:700}
+.chip.gone{background:transparent;border:1px dashed var(--bad);color:var(--bad);text-decoration:line-through}
+.chip.hurt{background:transparent;border:1px dashed var(--warn);color:var(--warn)}
+.inj-me{display:grid;gap:14px}.inj-me article{border:1px solid var(--rule);border-radius:10px;padding:12px}
+.opts{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.opt{border:1px solid var(--rule);border-radius:8px;padding:8px 10px}
+.opt.best{border-color:var(--good);box-shadow:inset 3px 0 0 var(--good)}
+.opt .oh{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.opt p{margin:2px 0 0;font-size:.9rem;color:var(--muted)}.opt .w{color:var(--warn);font-weight:600}
+.rscn{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:.88rem;align-items:center}
+.rscn span{background:var(--field);border-radius:6px;padding:4px 8px}.rscn .lbl{background:none;padding-left:0;color:var(--muted)}
 .foot{color:var(--muted);font-size:.86rem;margin-top:18px;max-width:70ch}
 .wi{display:grid;grid-template-columns:minmax(9rem,.7fr) 1.3fr 1fr;gap:10px;margin-bottom:14px}
 .wi label{display:grid;gap:4px;font-size:.88rem;color:var(--muted)}
@@ -410,12 +424,100 @@ def _stream(plan):
             drop = "Use your open roster spot."
         trend = (f'<p class="wv">{_wv(m["add_waiver"])}</p>' if m.get("add_waiver") else "") + \
             (f'<p>{escape(m["trend"])}</p>' if m.get("trend") else "")
+        lost = ""
+        if m["drop"] and m.get("drop_games_lost"):
+            lost = f' {escape(m["drop"])} gives up {_days_list(m["drop_games_lost"])}.'
+        elif m["drop"]:
+            lost = f' {escape(m["drop"])} has no games left after this, so you lose nothing.'
         h += (f'<li class="step"><div class="sh"><span class="dn">{escape(m["day"])}</span>{when}</div>'
               f'<p class="act"><strong>{"Claim" if m.get("add_waiver") else "Add"} {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {_days_list(m["add_days"])} for you'
-              + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.</p>{trend}{_alts(m)}</li>')
-    h += ('</ol><p class="hint" style="margin-top:10px">Make today’s moves; later steps can change as news comes in.</p>')
+              + (f', starting {escape(m["plays_from"])}' if m.get("plays_from") else "") + f'.{lost}</p>{_effect(m)}{trend}{_alts(m)}</li>')
+    h += '</ol>' + _stream_total(st)
+    irs = [x["name"] for x in plan.get("injured") or [] if any(o["kind"] == "ir" for o in x["options"])]
+    if irs:
+        h += (f'<p class="hint" style="margin-top:10px">This plan leaves {escape(" and ".join(irs))} on your bench. '
+              f'Moving {"him" if len(irs) == 1 else "them"} to IR frees a roster spot; see <b>Your injured players</b> above.</p>')
+    h += ('<p class="hint" style="margin-top:10px">Each step shows what that move does on top of the steps before it. '
+          'The Daily lineup below already follows this plan: <span class="chip add" style="font-size:.8rem">new</span> '
+          'marks a pickup and <span class="chip gone" style="font-size:.8rem">struck</span> a dropped player’s lost game. '
+          'Make today’s moves; later steps can change as news comes in.</p>')
     return h
+
+
+def _effect(m):
+    """What one streaming move does: win chance, starter games, categories."""
+    if m.get("win_after") is None:
+        return ""
+    d, g = m["win_delta"], m["starts_delta"]
+    cls = "pos" if d > 0 else "neg" if d < 0 else "flat"
+    games = (f'{_signed(round(g, 1))} starter game{"s" if abs(g) != 1 else ""}' if abs(g) >= 0.05
+             else "no extra starter games (he replaces a game you’d have had anyway)")
+    mv = "".join(f'<span class="mv up">{l} +{v}%</span>' for l, v in m.get("up") or []) + \
+        "".join(f'<span class="mv down">{l} {v}%</span>' for l, v in m.get("down") or [])
+    return (f'<div class="fx"><span>After this move:</span> <b class="{cls}">{m["win_after"]}% to win '
+            f'({_signed(d, " pts")})</b><span class="sep">|</span><span>{games}</span>'
+            f'<span class="sep">|</span><span>{_signed(m["cats_delta"])} expected categories</span>{mv}</div>')
+
+
+def _stream_total(st):
+    """Category-by-category before and after for the whole streaming plan."""
+    b, a = st.get("catP_before"), st.get("catP_after")
+    if not b or not a:
+        return ""
+    cells = ""
+    for c, (name, _, _) in enumerate(CATS):
+        x, y = round(b[c] * 100), round(a[c] * 100)
+        cls = "pos" if y - x >= 3 else "neg" if y - x <= -3 else "flat"
+        cells += f'<tr><td>{name}</td><td>{x}%</td><td class="{cls}">{y}% ({_signed(y - x)})</td></tr>'
+    sg = ""
+    if st.get("starts_before") is not None:
+        sg = (f' Starter games left: {st["starts_before"]:g} now, {st["starts_after"]:g} with the plan.')
+    return (f'<details class="alts" open><summary>Whole plan, category by category</summary>'
+            f'<p class="dc" style="margin:4px 0">Chance to win each category now and after every move above. '
+            f'Expected categories {st["cats_before"]:.1f} → {st["cats_after"]:.1f}.{sg}</p>'
+            f'<table><tr><td>Cat</td><td>Now</td><td>With plan</td></tr>{cells}</table></details>')
+
+
+def _injured(plan):
+    """Your injured players and what you can do about each one, simulated."""
+    rows = plan.get("injured") or []
+    if not rows:
+        return ""
+    arts = ""
+    for x in rows:
+        opts = ""
+        for o in x["options"]:
+            d = o["delta"]
+            cls = "pos" if d > 0 else "neg" if d < 0 else "flat"
+            right = (f'<span class="delta {cls}">{o["win"]}%{f" ({_signed(d)})" if o["kind"] != "hold" else ""}</span>')
+            mv = "".join(f'<span class="mv up">{l} +{v}%</span>' for l, v in o["up"]) + \
+                "".join(f'<span class="mv down">{l} {v}%</span>' for l, v in o["down"])
+            g = o["starts"]
+            extra = (f' {_signed(g)} starter games this week.' if o["kind"] != "hold" and abs(g) >= 0.05 else "")
+            title = escape(o["title"]).replace("Add ", "Claim ") if o.get("waiver") else escape(o["title"])
+            opts += (f'<li class="opt{" best" if o["best"] else ""}"><div class="oh"><strong>'
+                     f'{"Best: " if o["best"] else ""}{title}</strong>{right}</div>'
+                     f'<p>{escape(o["text"])}{extra}</p>'
+                     + (f'<p class="w">{escape(o["warn"])}</p>' if o.get("warn") else "")
+                     + (f'<div class="moves">{mv}</div>' if mv else "") + '</li>')
+        scn = "".join(f'<span>{escape(sc["label"])}: <b>{sc["win"]}%</b></span>' for sc in x["scenarios"])
+        rank = f', your #{x["rank"]} player' if x.get("rank") else ""
+        ret = (f', ESPN expects him back {date.fromisoformat(x["ret"]).strftime("%a %b %-d")}' if x.get("ret")
+               else ", no return date from ESPN")
+        arts += (f'<article><div class="ih"><strong>{escape(x["name"])} <span class="dc">{escape(x["team"])}'
+                 f'{rank}</span></strong>'
+                 f'<span class="vd t-warn">{escape(x["status"])}</span></div>'
+                 f'<p class="dc" style="margin:2px 0 0">{x["games"]} game{"s" if x["games"] != 1 else ""} left this week{ret}. '
+                 f'The plan expects about {x["exp_games"]:g} games from him.</p>'
+                 + (f'<p class="dc" style="margin:2px 0 0">{escape(x["note"])}</p>' if x.get("note") else "")
+                 + f'<ol class="opts">{opts}</ol>'
+                 + (f'<div class="rscn"><span class="lbl">How much his return matters:</span>{scn}</div>' if scn else "")
+                 + '</article>')
+    return ('<section class="panel" style="margin-bottom:18px"><h2>Your injured players</h2>'
+            '<p class="hint">Each option is simulated against your opponent for the rest of the week. Percentages are your '
+            'chance to win the week; the number in brackets is the change from doing nothing.</p>'
+            f'<div class="inj-me">{arts}</div></section>')
 
 
 def _days(plan):
@@ -434,10 +536,15 @@ def _days(plan):
         elif d["open"] and d["start"]:
             cnt += f', {d["open"]} open'
         slots = d.get("slot") or [None] * len(d["start"])
-        chips = "".join(f'<span class="chip">{f"<i>{escape(sl)}</i>" if sl else ""}{escape(n)}'
+        added = set(d.get("added") or [])
+        chips = "".join(f'<span class="chip{" add" if n in added else ""}">{f"<i>{escape(sl)}</i>" if sl else ""}{escape(n)}'
                         f'{f"<small>{SHORT.get(s, s)}</small>" if pr < 1 else ""}</span>'
                         for (n, pr, s), sl in zip(d["start"], slots))
         chips += "".join(f'<span class="chip bench">{escape(n)}</span>' for n in d["bench"])
+        chips += "".join(f'<span class="chip gone" title="Dropped in the streaming plan">{escape(n)}</span>'
+                         for n in d.get("gone") or [])
+        chips += "".join(f'<span class="chip hurt" title="Counted out today">{escape(n)} <small>out</small></span>'
+                         for n in d.get("out") or [])
         if d.get("squeezed"):
             chips += (f'<p class="dc" style="margin:4px 0 0">{escape(", ".join(d["squeezed"]))} can’t start: '
                       f'the open spot{"s don’t" if d["open"] > 1 else " doesn’t"} fit his position.</p>')
@@ -466,7 +573,7 @@ def _days(plan):
 
 
 def _signed(v, suffix=""):
-    return (f"+{v}" if v > 0 else f"−{-v}" if v < 0 else "±0") + suffix
+    return (f"+{v:g}" if v > 0 else f"−{-v:g}" if v < 0 else "±0") + suffix
 
 
 def _cat_grid(before, after):
@@ -1460,6 +1567,7 @@ def render(data, plan):
 <div class="mid">categories<br>won</div>
 <div class="side opp"><span class="team">{escape(opp)}</span><span class="big">{9 - res["cats"]:.1f}</span></div></div>
 <p class="verdict">{verdict}</p>{_now_html(data)}<div class="tug">{_tug(res, _board_now(data))}</div></section>
+{_injured(plan)}
 <div class="plan">
 <section class="panel"><h2>Streaming plan</h2>{_stream(plan)}
 <details class="more"><summary>Other pickups right now</summary>{_picks(plan)}</details></section>
@@ -1501,6 +1609,15 @@ def summary(data, plan):
     for x in data.get("injury_watch") or []:
         if x.get("bucket") == 0 and not x.get("mine"):
             lines.append(f"Injury watch: {x['verdict']}: {x['name']}.")
+    for x in plan.get("injured") or []:
+        best = next((o for o in x["options"] if o["best"]), None)
+        if not best:
+            continue
+        if best["kind"] == "hold":
+            lines.append(f"{x['name']} is {x['status'].lower()}: hold him; no move beats doing nothing ({best['win']}% to win).")
+        else:
+            t = best["title"][0].lower() + best["title"][1:]
+            lines.append(f"{x['name']} is {x['status'].lower()}: best option is {t} ({best['win']}% to win, {best['delta']:+d}).")
     sc = plan.get("scenario")
     if sc and sc.get("ok"):
         lines.append(f"What-if ({sc['text']}): {round(sc['before']['win'] * 100)}% -> {round(sc['after']['win'] * 100)}% to win")
