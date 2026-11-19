@@ -286,6 +286,76 @@ def _player(p, year, days, today_index, team_games, ir=False, team_tips=None):
                           for d in _CTX["next_days"]]}
 
 
+OUT_LABELS = {"Out", "Suspended"}
+# An Out player with no return date from ESPN: he misses his next game, then has this chance of playing
+# each later game this week, and next week. ESPN often lists short knocks as Out game by game, so
+# counting him out for every game left was too pessimistic.
+NO_DATE_LATER, NO_DATE_NEXT_WEEK, BACK_PROB = 0.3, 0.5, 0.75
+
+
+def out_probs(p, days, today_index, next_days, ret=None, long_term=False):
+    """Recompute an Out player's chance to play each day, from his return date if ESPN gave one.
+
+    Sets p["prob"], p["next_prob"], p["ret"] and p["out_note"] (the assumption, in words)."""
+    first = next((i for i in range(today_index, len(days)) if p["games"][i]), None)
+    probs = list(p["prob"])
+    for i in range(today_index, len(days)):
+        if ret:
+            probs[i] = 0.0 if date.fromisoformat(days[i]["date"]) < ret else BACK_PROB
+        elif long_term:
+            probs[i] = 0.0
+        else:
+            probs[i] = 0.0 if first is None or i <= first else NO_DATE_LATER
+    p["prob"] = probs
+    nxt = []
+    for d in next_days or []:
+        if ret:
+            nxt.append(0.0 if date.fromisoformat(d["date"]) < ret else BACK_PROB)
+        else:
+            nxt.append(0.0 if long_term else NO_DATE_NEXT_WEEK)
+    p["next_prob"] = nxt
+    p["ret"] = ret.isoformat() if ret else None
+    if ret:
+        p["out_note"] = (f"ESPN expects him back around {ret.strftime('%a %b %-d')}. The plan counts him out before "
+                         f"then and {round(BACK_PROB * 100)}% likely to play each game after.")
+    elif long_term:
+        p["out_note"] = "Recent news points to a long absence, so the plan counts him out for every game."
+    else:
+        p["out_note"] = (f"ESPN has no return date. The plan counts him out for his next game, then "
+                         f"{round(NO_DATE_LATER * 100)}% likely to play each game after it this week "
+                         f"and {round(NO_DATE_NEXT_WEEK * 100)}% next week.")
+
+
+def _refine_out(lg, groups, watch, days, today_index, next_days):
+    """Out players on these rosters: use the return date from their player card.
+
+    The roster feed usually leaves expectedReturnDate out, so without this every Out player was
+    counted as missing every game this week and next, even when ESPN expects him back in two days."""
+    from .extras import LONG_TERM
+    known = {x["id"]: x for x in watch or []}
+    targets = [p for g in groups for p in g if p["status"] in OUT_LABELS and not p["ir"]]
+    if not targets:
+        return
+    need = [p["id"] for p in targets if p["id"] not in known]
+    parsed = {}
+    if need:
+        try:
+            parsed = {pid: cards.parse(e, lg.year) for pid, e in cards.fetch(lg, need).items()}
+        except Exception as exc:
+            print(f"Couldn't read return dates for injured players: {exc}")
+    for p in targets:
+        w = known.get(p["id"])
+        if w is not None:
+            ret = w.get("ret")
+            text = " ".join((n.get("headline", "") + " " + n.get("story", "")).lower() for n in w.get("news") or [])
+        else:
+            ret = (parsed.get(p["id"]) or {}).get("ret")
+            text = ""
+        long_term = any(k in text for k in LONG_TERM)
+        out_probs(p, days, today_index, next_days, date.fromisoformat(ret) if ret else None, long_term)
+        print(f"{p['name']}: {p['out_note']}")
+
+
 def _free_agents(lg, size):
     """Like League.free_agents, but keeps what the library throws away: whether each player is a
     free agent or on waivers, and when his waiver claim processes."""
@@ -588,9 +658,6 @@ def load(cfg):
                 players.append(x)
             else:
                 print(f"{team.team_name}: skipped {p.name} (no stats or projection from ESPN)")
-        for x in players:
-            if x["status"] == "Out" and not x["ir"]:
-                print(f"{team.team_name}: {x['name']} is Out, counted as missing every remaining day")
         sofar, note = _sofar(stats, [p for p in players if not p["ir"]])
         return {"name": team.team_name, "id": team.team_id, "sofar": sofar, "players": players}, note
 
@@ -630,6 +697,9 @@ def load(cfg):
     except Exception:
         deep = fa_raw
     watch, missing = _injury_watch(lg, cfg, me_team, me["players"], deep, sp_date, team_games, today_sp)
+    # Return dates for Out players on every roster, so a short absence isn't counted as the whole week.
+    _refine_out(lg, [me["players"], opp["players"]] + [t["players"] for t in others], watch,
+                days, today_index, _CTX["next_days"])
 
     counts = _slot_counts(lg) or {}
     return {
