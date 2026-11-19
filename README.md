@@ -116,6 +116,9 @@ Both the **This week** and **Next week** tabs have a **Free agents by day** sect
 
 Full days usually show nothing worth adding, which is the point: save adds for your light days. Every pickup needs a roster spot, and the numbers don't subtract the games of whoever you drop; the section names your weakest droppable player so you can weigh that. Next week uses your roster after the **Set up next week** moves and season-long numbers. The section updates with every run, so each morning it reflects the current free agents and your roster.
 
+## What each streaming move does
+Every step in the streaming plan shows what it does on top of the steps before it: your chance to win after the move, the change, extra starter games, expected categories and which categories move. The dropped player's lost games are listed. Under the steps, a table compares your chance in each category now and with the whole plan. The **Daily lineup** follows the plan: pickups are marked with a green **+**, a dropped player's lost game is struck through in red, and players counted out that day are shown in amber.
+
 ## Set up next week
 Adds reset when a new matchup starts, so any you still have on the last day are free. The **Set up next week** panel (under the streaming plan) uses them: it finds the free agents who add the most starter games to next week's lineup, counting only games on days you'd have room to start them, weighted by how good they are. It suggests who to drop: streamers from this week first, and a regular only for someone at least as good over the season. If the player to drop still has a game on the last day, it tells you to wait until that game ends. These moves also show in the deadline banner and Discord on the last day.
 
@@ -134,6 +137,19 @@ It then gives a verdict:
 - **Pass**: even healthy he wouldn't make your lineup, or he'd come back with too few games left.
 
 To change who's tracked, set the `WATCH_PLAYERS` variable (below), for example `Jimmy Butler, Ja Morant`.
+
+## Your injured players
+When one of your own players is Out, Doubtful or Suspended (and not already on IR), the **This week** tab shows a panel for him with every realistic option, each simulated against your opponent for the rest of the week:
+
+- **Keep him on your bench**: the baseline.
+- **Move him to IR and add the best free agent**: only when he's listed Out (ESPN's rule) and your IR slot is free.
+- **Use your open roster spot**: if you have one.
+- **Keep him, drop your weakest player** for the best free agent to cover his missed games.
+- **Drop him** for the best free agent, with a warning when that would be a permanent downgrade.
+
+Each option shows your chance to win the week, the change from doing nothing, extra starter games and which categories move. The best one is highlighted; it only beats holding him if it gains at least 2 points without a permanent downgrade. Underneath, two scenarios show how much his timeline matters: if he plays his next game, and if he misses the whole week.
+
+How Out players are counted: ESPN's roster feed usually leaves out the return date, so the planner reads it from each injured player's card. With a return date, he's counted out until then and 75% likely to play each game after. With no date, he's counted out for his next game, then 30% likely for each later game this week and 50% next week, since ESPN often lists short knocks as Out game by game. If recent news says season-ending or similar, he's counted out for everything.
 
 ## Stash simulator
 At the top of the **Injuries** tab. Pick an injured player (free agents and waiver players from the Injury watch list, plus your own injured players) and how you'd make room for him: putting him on IR (no drop), an open roster spot, or dropping one of your weakest players. The IR option is always there so you can see the cost of the stash on its own; if your IR slot is taken or he isn't listed as Out, it says so. A table then shows, for every possible return day this week and next week, your chance to win each week and how many games he'd play for you. ESPN's return estimate is marked and picked first; tap any other day to see what happens if he's back sooner or later.
