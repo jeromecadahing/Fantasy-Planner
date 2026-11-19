@@ -218,7 +218,8 @@ def build_plan(data, cfg):
     stream = _stream_plan(data, cfg, me_players, w, days_left, opp_tot)
     stream_es = stream.pop("entries", None)
     plan_es = sorted(stream_es or my_es, key=lambda e: -e.prio)
-    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots, w)
+    added = {m["add"] for m in stream.get("moves") or []} if stream_es else set()
+    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots, w, added)
     from . import whatif
     return {"result": res, "weights": w, "cat_weights": dict(zip(CAT_NAMES, (round(x, 2) for x in w))), "lineup": lineup, "picks": picks, "pick_note": pick_note,
             "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data),
@@ -226,7 +227,7 @@ def build_plan(data, cfg):
             "plan_entries": stream_es, "slots": slots, "opp_tot": opp_tot}
 
 
-def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL):
+def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL, added=()):
     out = []
     for d in days_left:
         mine = [e for e in my_es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
@@ -240,6 +241,10 @@ def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL):
         squeezed = [e.p["name"] for e in bench] if len(start) < n_slots(slots) else []
         out.append({"day": data["days"][d]["label"],
                     "start": [(e.p["name"], e.p["prob"][d], e.p["status"]) for e in start],
+                    # Players the streaming plan brings in, and players it has already let go with a game today.
+                    "added": [e.p["name"] for e in mine if e.p["name"] in added],
+                    "gone": [e.p["name"] for e in my_es if e.until <= d and e.p["games"][d] and e.p["prob"][d] > 0],
+                    "out": [e.p["name"] for e in my_es if e.frm <= d < e.until and e.p["games"][d] and e.p["prob"][d] <= 0],
                     "slot": [a for a, x in zip(at, on) if x],
                     "bench": [e.p["name"] for e in bench], "squeezed": squeezed,
                     "why_bench": [_why_bench(b, start, slots, w) for b in bench],
@@ -422,11 +427,40 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
         out["note"] = "No streaming moves raise your chance of winning by at least 1 point. Hold your adds for injury news."
         return out
 
-    # Re-check the finished plan with the full simulation count.
-    before = evaluate([{"p": p, "frm": 0, "until": BIG} for p in me_players], cfg.sims, opp_tot)
-    after = evaluate(items, cfg.sims, opp_tot)
+    # Re-check the finished plan with the full simulation count, one move at a time in the order you'd
+    # make them, so each step shows what it does to your chances, categories and starter games.
+    from .whatif import _starts
+
+    def starts(its):
+        return _starts(sorted((Entry(i["p"], w, i["frm"], i["until"]) for i in its), key=lambda e: -e.prio),
+                       days_left, cfg.active_slots)
+
+    step_items = [{"p": p, "frm": 0, "until": BIG} for p in me_players]
+    before = evaluate(step_items, cfg.sims, opp_tot)
+    prev, prev_starts = before, starts(step_items)
+    out["starts_before"] = round(prev_starts, 1)
+    effects = {}
+    for m in sorted(out["moves"], key=lambda m: m["day"]):
+        step_items = [dict(i) for i in step_items]
+        if m["drop"] is not None:
+            for i in step_items:
+                if i["p"] is m["drop"] and i["until"] == BIG:
+                    i["until"] = m["day"]
+                    break
+        step_items.append({"p": m["add"], "frm": m["day"], "until": BIG})
+        r = evaluate(step_items, cfg.sims, opp_tot)
+        st = starts(step_items)
+        mv = [(CATS[c][0], round((r["catP"][c] - prev["catP"][c]) * 100)) for c in range(9)]
+        mv = sorted((x for x in mv if abs(x[1]) >= 3), key=lambda x: -x[1])
+        effects[id(m)] = {"win_after": round(r["win"] * 100), "win_delta": round((r["win"] - prev["win"]) * 100),
+                          "cats_delta": round(r["cats"] - prev["cats"], 2), "starts_delta": round(st - prev_starts, 1),
+                          "up": [x for x in mv if x[1] > 0][:3], "down": [x for x in mv if x[1] < 0][-2:]}
+        prev, prev_starts = r, st
+    after = prev
+    out["starts_after"] = round(prev_starts, 1)
     out["before"], out["after"] = before["win"], after["win"]
     out["cats_before"], out["cats_after"] = before["cats"], after["cats"]
+    out["catP_before"], out["catP_after"] = before["catP"], after["catP"]
     final_until = {id(i["p"]): i["until"] for i in items}
     moves = []
     for m in sorted(out["moves"], key=lambda m: m["day"]):
@@ -448,7 +482,10 @@ def _stream_plan(data, cfg, me_players, w, days_left, opp_tot):
                       "add_waiver": fa.get("waiver"),
                       "trend": fa.get("trend"), "drop": drop["name"] if drop else None, "drop_days_used": drop_days,
                       "drop_is_streamer": bool(drop is not None and any(x["add"] is drop for x in out["moves"])),
-                      "alts": m["alts"]})
+                      "drop_games_lost": [data["days"][d]["label"].split()[0] for d in days_left
+                                          if d >= t and drop["games"][d] and drop["prob"][d] > 0] if drop else [],
+                      "drop_status": drop["status"] if drop else None,
+                      "alts": m["alts"], **effects.get(id(m), {})})
     out["moves"] = moves
     out["adds_planned"] = len(moves)
     out["adds_left_after"] = cfg.max_adds - used - len(moves)
