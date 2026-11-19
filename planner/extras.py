@@ -120,6 +120,9 @@ def advise(data, cfg, plan):
         why, verdict, tone, bucket, add_by = [], "", "flat", 3, None
         if x["mine"]:
             verdict, tone, bucket = "On your team", "you", 4
+            if x["status"] in ("Out", "Doubtful", "Suspended"):
+                why.append("Your options for him (IR, covering his games, or dropping him), each simulated against "
+                           "your opponent, are under Your injured players on the This week tab.")
             if x["status"] == "Out" and ir_free:
                 why.append("He’s listed Out, so he can go in your IR slot. That frees a bench spot for a streamer.")
             if back_news:
