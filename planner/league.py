@@ -34,10 +34,13 @@ def table(data, cfg, plan, slots, n=1000):
         return sim_team(es, days_left, sofar, n, np.random.default_rng(seed), slots)
 
     mine = sim(me_players, data["me"]["sofar"], 777, w=plan["weights"])
-    teams = [{"name": data["me"]["name"], "me": True, "tot": mine},
-             {"name": data["opp"]["name"], "opp": True, "tot": sim(data["opp"]["players"], data["opp"]["sofar"], 4242)}]
+    teams = [{"name": data["me"]["name"], "me": True, "tot": mine, "id": data["me"].get("id"),
+              "record": data["me"].get("record")},
+             {"name": data["opp"]["name"], "opp": True, "tot": sim(data["opp"]["players"], data["opp"]["sofar"], 4242),
+              "id": data["opp"].get("id"), "record": data["opp"].get("record")}]
     for i, t in enumerate(others):
-        teams.append({"name": t["name"], "tot": sim(t["players"], t["sofar"], 1000 + i)})
+        teams.append({"name": t["name"], "tot": sim(t["players"], t["sofar"], 1000 + i), "id": t.get("id"),
+                      "record": t.get("record")})
 
     with_plan = None
     if plan.get("plan_entries") and (plan.get("stream") or {}).get("moves"):
@@ -79,6 +82,8 @@ def table(data, cfg, plan, slots, n=1000):
     me = teams[0]
     rivals = [t for t in teams if not t.get("me")]
     return {
+        "standing": _standing(teams, plan_row),
+        "matchups": _matchups(data, teams, plan),
         "teams": [{k: v for k, v in t.items() if k != "tot"} for t in teams],
         "plan_row": plan_row,
         "n_teams": len(teams),
@@ -87,3 +92,50 @@ def table(data, cfg, plan, slots, n=1000):
         "avg_rank": sum(me["ranks"]) / 9,
         "partial": not others,
     }
+
+
+def _standing(teams, plan_row):
+    """For each category: your rank, and the team just above and just below you with the gap to each.
+    The gap is also given as a share of the league's spread in that category, so small numbers mean
+    a little more would move you up (or a little less would drop you)."""
+    me = teams[0]
+    rest = [t for t in teams if not t.get("me")]
+    out = []
+    for c in range(9):
+        name, _, low = CATS[c]
+        mv = me["vals"][c]
+        vals = [t["vals"][c] for t in teams]
+        spread = float(np.std(vals)) or 1e-9
+        better = [t for t in rest if (t["vals"][c] < mv if low else t["vals"][c] > mv) and not np.isclose(t["vals"][c], mv)]
+        worse = [t for t in rest if (t["vals"][c] > mv if low else t["vals"][c] < mv) and not np.isclose(t["vals"][c], mv)]
+        above = min(better, key=lambda t: abs(t["vals"][c] - mv)) if better else None
+        below = min(worse, key=lambda t: abs(t["vals"][c] - mv)) if worse else None
+        row = {"cat": name, "rank": me["ranks"][c], "pct": isinstance(CATS[c][1], tuple),
+               "up": {"name": above["name"], "gap": abs(above["vals"][c] - mv), "rel": abs(above["vals"][c] - mv) / spread}
+               if above else None,
+               "down": {"name": below["name"], "gap": abs(below["vals"][c] - mv), "rel": abs(below["vals"][c] - mv) / spread}
+               if below else None,
+               "plan_rank": plan_row["ranks"][c] if plan_row else None}
+        out.append(row)
+    return out
+
+
+def _matchups(data, teams, plan):
+    """Every head-to-head matchup this week with each side's chance, from ESPN's pairings."""
+    by_id = {t["id"]: t for t in teams if t.get("id") is not None}
+    out = []
+    for a, b in data.get("pairs") or []:
+        ta, tb = by_id.get(a), by_id.get(b)
+        if ta is None or tb is None:
+            continue
+        if tb.get("me"):
+            ta, tb = tb, ta
+        if ta.get("me"):
+            win, cats = plan["result"]["win"], plan["result"]["cats"]
+        else:
+            r = compare(ta["tot"], tb["tot"])
+            win, cats = r["win"], r["cats"]
+        out.append({"a": ta["name"], "b": tb["name"], "win": win, "cats": cats, "mine": bool(ta.get("me")),
+                    "ra": ta.get("record"), "rb": tb.get("record")})
+    out.sort(key=lambda m: (not m["mine"], abs(m["win"] - 0.5)))
+    return out
