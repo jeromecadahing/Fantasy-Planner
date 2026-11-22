@@ -115,6 +115,18 @@ def load():
     data["injury_watch"], data["watch_missing"] = _injured(), []
     data["ir_slots"], data["ir_used"] = 1, 1
     data["others"] = _others(data, rng)
+    # Team ids, records and this week's pairings, so the league section has something to show.
+    data["me"]["id"], data["opp"]["id"] = 1, 2
+    recs = [(7, 3), (5, 5), (8, 2), (4, 6), (6, 4), (3, 7), (5, 5)]
+    for k, t in enumerate([data["me"], data["opp"]] + data["others"]):
+        t.setdefault("id", 10 + k)
+        w, l_ = recs[k % len(recs)]
+        t["record"] = {"w": w, "l": l_, "t": 0, "rank": None}
+    ids = [t["id"] for t in data["others"]]
+    data["pairs"] = [[1, 2]] + [[ids[i], ids[i + 1]] for i in range(0, len(ids) - 1, 2)]
+    order = sorted([data["me"], data["opp"]] + data["others"], key=lambda t: -t["record"]["w"])
+    for i, t in enumerate(order):
+        t["record"]["rank"] = i + 1
     # Next week: a different mix of game days per demo schedule.
     nxt = {"A": [1, 1, 0, 1, 0, 1, 1], "B": [0, 1, 0, 0, 1, 0, 0], "C": [1, 0, 1, 0, 1, 0, 1],
            "D": [0, 1, 1, 0, 0, 1, 0], "E": [1, 0, 0, 1, 0, 0, 1], "F": [0, 0, 1, 1, 1, 1, 0]}
