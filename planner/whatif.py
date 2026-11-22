@@ -152,11 +152,18 @@ def grid(data, cfg, w, opp_tot):
     days_left = list(range(data["today_index"], len(data["days"])))
     eff = data["today_index"] + cfg.add_delay_days
     me_players = [p for p in data["me"]["players"] if not p["ir"]]
-    if eff >= len(data["days"]):
+    has_next = bool(data.get("next_opp") and data.get("next_days"))
+    if eff >= len(data["days"]) and not has_next:
         return {"note": "A new pickup wouldn't get a game in this matchup."}
-    fas = [p for p in data["fa"] if _games(p, days_left, eff) > 0]
+    fas = [p for p in data["fa"] if eff < len(data["days"]) and _games(p, days_left, eff) > 0]
+    # Free agents with no games left this week can still be worth adding for next week.
+    nm, nd = data.get("next_opp"), data.get("next_days") or []
+    if nm and nd:
+        extra = [p for p in data["fa"] if not any(p is f for f in fas) and _next_n(p) > 0]
+        extra.sort(key=lambda p: -season_value(p) * _next_n(p))
+        fas += extra[:15]
     if not fas:
-        return {"note": "No free agents with games left this week."}
+        return {"note": "No free agents with games left this week" + (" or next week." if has_next else ".")}
 
     n, slots, sofar = cfg.whatif_sims, cfg.active_slots, data["me"]["sofar"]
     opp = opp_tot[:n]
@@ -197,18 +204,71 @@ def grid(data, cfg, w, opp_tot):
                        "drop_games": [0 if d is None else _games(d, days_left, t) for d in drops],
                        "rows": rows})
 
+    nx = _next_grid(data, cfg, me_players, fas, drops) if nm and nd else None
+
     def game_days(p):
         return [d for d in days_left if p["games"][d] and p["prob"][d] > 0]
 
+    def next_days(p):
+        if not p or not p.get("next_games"):
+            return []
+        return [nd[d]["label"].split()[0] for d in range(len(nd)) if p["next_games"][d] and p["next_prob"][d] > 0]
+
+    if nx:
+        by_day.append({"label": nd[0]["label"], "next": True, "t": len(data["days"]), "today": False, "act": None})
     return {
         "adds": [{"name": p["name"], "team": p["team"], "status": p["status"], "trend": p.get("trend"),
-                  "g": game_days(p), "sv": round(season_value(p), 3)} for p in fas],
-        "drops": [{"name": "Nobody (open roster spot)", "open": True, "g": []} if d is None else
-                  {"name": d["name"], "g": game_days(d), "sv": round(season_value(d), 3),
+                  "g": game_days(p), "ng": next_days(p), "sv": round(season_value(p), 3)} for p in fas],
+        "drops": [{"name": "Nobody (open roster spot)", "open": True, "g": [], "ng": []} if d is None else
+                  {"name": d["name"], "g": game_days(d), "ng": next_days(d), "sv": round(season_value(d), 3),
                    "rank": ranks[id(d)], "keep": _protected(d, ranks, cfg)} for d in drops],
         "dl": [{"l": x["label"].split()[0], "dt": x["date"]} for x in data["days"]],
-        "days": by_day, "cats": [c[0] for c in CATS],
+        "days": by_day, "cats": [c[0] for c in CATS], "nx": nx,
+        "left": len(days_left),
     }
+
+
+def _next_n(p):
+    return sum(1 for g, pr in zip(p.get("next_games") or [], p.get("next_prob") or []) if g and pr > 0)
+
+
+def _next_grid(data, cfg, me_players, fas, drops):
+    """Next week's matchup for every pickup x drop, against next week's opponent as his roster stands.
+    Both sides use season-long numbers, as in the Next week tab. The opponent and your unchanged
+    roster are simulated once; each move re-runs only your side, on the same luck."""
+    from .nextmatch import _shadow
+    nm, nd = data["next_opp"], data["next_days"]
+    n, slots = min(cfg.whatif_sims, 400), cfg.active_slots
+    days = list(range(len(nd)))
+    zero = [0.0] * 11
+    opp = sim_team(entries(_shadow(nm["players"]), EQUAL), days, zero, n, np.random.default_rng(99), slots)
+
+    def run(players):
+        es = entries(_shadow(players), EQUAL)
+        return compare(sim_team(es, days, zero, n, np.random.default_rng(98), slots), opp), es
+
+    base, base_es = run(me_players)
+    base_starts = _next_starts(base_es, days, slots)
+    rows = []
+    for fa in fas:
+        if _next_n(fa) == 0:
+            rows.append(None)
+            continue
+        row = []
+        for drop in drops:
+            trial = [p for p in me_players if p is not drop] + [fa]
+            r, es = run(trial)
+            row.append([round((r["win"] - base["win"]) * 1000), round((r["cats"] - base["cats"]) * 100),
+                        [round((r["catP"][c] - base["catP"][c]) * 100) for c in range(9)],
+                        round((_next_starts(es, days, slots) - base_starts) * 10)])
+        rows.append(row)
+    return {"name": nm["name"], "base": {"win": base["win"], "cats": base["cats"], "catP": base["catP"]},
+            "rows": rows, "dl": [x["label"].split()[0] for x in nd]}
+
+
+def _next_starts(es, days, slots):
+    """Expected starter games next week (entries built from next-week copies of players)."""
+    return _starts(es, days, slots)
 
 
 # ---------- a custom scenario ----------
