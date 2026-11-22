@@ -240,24 +240,30 @@ def _day_starts(es, d, slots):
 def _volume(data, now_es, plan_es, opp_es, days_left, slots):
     """Starter games per day for the rest of the matchup: your roster as it stands, your roster with the
     streaming plan (None when there's no plan), and your opponent's roster as it stands."""
+    return volume_table([data["days"][d]["label"] for d in days_left], days_left, data["today_index"],
+                        now_es, plan_es, opp_es, slots)
+
+
+def volume_table(labels, days, today, now_es, plan_es, opp_es, slots):
+    """Starter games on each of `days` for three rosters (plan_es may be None), plus each roster's players
+    by NBA games across the whole matchup and games from `today` on."""
     def row(es):
         if es is None:
             return None
-        days = [_day_starts(es, d, slots) for d in days_left]
-        return {"games": [g for g, _, _ in days], "exp": [round(x, 1) for _, x, _ in days],
-                "bench": [b for _, _, b in days], "total": sum(g for g, _, _ in days),
-                "exp_total": round(sum(x for _, x, _ in days), 1), "bench_total": sum(b for _, _, b in days)}
+        per = [_day_starts(es, d, slots) for d in days]
+        return {"games": [g for g, _, _ in per], "exp": [round(x, 1) for _, x, _ in per],
+                "bench": [b for _, _, b in per], "total": sum(g for g, _, _ in per),
+                "exp_total": round(sum(x for _, x, _ in per), 1), "bench_total": sum(b for _, _, b in per)}
+
     def sched(es):
-        """Each player on the roster (after any planned drops) with his NBA games across the whole matchup
-        and how many are still to come, most games first."""
+        """Each player on the roster (after any planned drops), most games first."""
         if es is None:
             return None
-        today = data["today_index"]
         out = [{"name": e.p["name"], "games": sum(1 for g in e.p["games"] if g),
                 "left": sum(1 for d in range(today, len(e.p["games"])) if e.p["games"][d]),
                 "status": e.p["status"]} for e in es if e.until >= 10 ** 6]
         return sorted(out, key=lambda x: (-x["games"], x["name"]))
-    return {"days": [data["days"][d]["label"] for d in days_left], "slots": n_slots(slots),
+    return {"days": labels, "slots": n_slots(slots),
             "now": row(now_es), "plan": row(plan_es), "opp": row(opp_es),
             "sched": {"now": sched(now_es), "plan": sched(plan_es), "opp": sched(opp_es)}}
 
