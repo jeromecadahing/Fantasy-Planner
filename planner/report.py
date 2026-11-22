@@ -202,6 +202,8 @@ table.lg th[scope=row]{text-align:left;font:600 .95rem/1.2 Barlow,sans-serif;col
 table.lg th[scope=row] small{display:block;font-weight:400;color:var(--muted);font-size:.78rem}
 table.lg td.lg-c small{display:block;font-size:.72rem;color:var(--muted);font-weight:400}
 table.lg td.lg-c.hi{color:var(--good)}table.lg td.lg-c.hi small{color:var(--good)}
+table.vol{min-width:0}.vol-h{margin:22px 0 6px;font:700 1.15rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}table.vol thead th small{display:block;font:400 .72rem/1.2 Barlow,sans-serif;color:var(--muted)}
+table.vol td.vol-t{font-weight:700;border-left:1px solid var(--rule)}
 table.lg td.lg-c.lo{color:var(--bad)}table.lg td.lg-c.lo small{color:var(--bad)}
 table.lg tr.lg-me th[scope=row],table.lg tr.lg-me td,table.lg tr.lg-plan th[scope=row],table.lg tr.lg-plan td{background:var(--you-soft)}
 table.lg tr.lg-me td.lg-c,table.lg tr.lg-plan td.lg-c{font-weight:600}
@@ -874,6 +876,105 @@ def _league(plan):
             f'Last column: your chance if you played them.</p>'
             f'{note}<div class="scroll"><table class="st lg"><thead><tr><th>Team</th>{head}<th>Your chance</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div></section>')
+
+
+def _volume(plan, data):
+    """Starter games per day, you vs your opponent: as things stand and with the streaming plan."""
+    V = plan.get("volume")
+    if not V or not V["days"]:
+        return ""
+    opp_name = data["opp"]["name"]
+    now, pl, opp = V["now"], V["plan"], V["opp"]
+
+    def cells(r, vs):
+        out = ""
+        for i, g in enumerate(r["games"]):
+            cls = "" if vs is None else " hi" if g > vs["games"][i] else " lo" if g < vs["games"][i] else ""
+            b = r["bench"][i]
+            sub = f'<small>{b} benched</small>' if b else ""
+            out += f'<td class="lg-c{cls}">{g}{sub}</td>'
+        cls = "" if vs is None else " hi" if r["total"] > vs["total"] else " lo" if r["total"] < vs["total"] else ""
+        out += f'<td class="lg-c vol-t{cls}">{r["total"]}<small>about {r["exp_total"]:g} expected</small></td>'
+        return out
+
+    head = "".join(f'<th>{escape(d.split()[0])}<small>{escape(" ".join(d.split()[1:]))}</small></th>' for d in V["days"])
+    rows = (f'<tr class="lg-me"><th scope="row">You<small>Roster as it stands</small></th>{cells(now, opp)}</tr>')
+    if pl:
+        rows += (f'<tr class="lg-plan"><th scope="row">You<small>With your streaming plan</small></th>{cells(pl, opp)}</tr>')
+    rows += (f'<tr class="lg-opp"><th scope="row">{escape(opp_name)}<small>Roster as it stands</small></th>'
+             f'{cells(opp, None)}</tr>')
+
+    def gap(a):
+        d = a - opp["total"]
+        return f"level with {escape(opp_name)}" if d == 0 else f'{abs(d)} {"more" if d > 0 else "fewer"} than {escape(opp_name)}'
+    line = f'You have <strong>{now["total"]}</strong> starter games left, {gap(now["total"])} ({opp["total"]}).'
+    if pl:
+        line += (f' With the streaming plan you’d have <strong>{pl["total"]}</strong>, {gap(pl["total"])}'
+                 f' ({_signed(pl["total"] - now["total"])} from the plan).')
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>Games per day</h2>'
+            f'<p class="lift" style="font-size:1rem">{line}</p>'
+            f'<p class="hint">Players who start each day for the rest of the matchup, up to your {V["slots"]} active spots. '
+            f'Green: more than {escape(opp_name)} that day, red: fewer. Day-to-day players count as playing; '
+            f'“expected” scales each game by his chance to play. Benched games are ones that don’t fit because every spot is full, '
+            f'so they don’t count. Games already played this week aren’t included.</p>'
+            f'<div class="scroll"><table class="st lg vol"><thead><tr><th>Team</th>{head}<th>Total</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>{_four_games(V, opp_name)}</section>')
+
+
+def _four_games(V, opp_name):
+    """How many players on each roster have 4 or more NBA games this matchup, with the full spread."""
+    S = V.get("sched") or {}
+    if not S.get("now") or not S.get("opp"):
+        return ""
+    top = max(4, max(x["games"] for k in ("now", "plan", "opp") for x in S.get(k) or []))
+    seen = {x["games"] for k in ("now", "plan", "opp") for x in S.get(k) or []}
+    # With a normal week, the 4-game column is the highlighted total; a longer matchup adds 4+ plus each count.
+    cols = [c for c in range(top, -1, -1) if (top > 4 and c >= 4 and c in seen) or (c < 4 and (c >= 2 or c in seen))]
+
+    def n4(r):
+        return sum(1 for x in r if x["games"] >= 4)
+
+    def names(r):
+        xs = [x for x in r if x["games"] >= 4]
+        if not xs:
+            return "nobody"
+        return ", ".join(f'{escape(x["name"])} ({x["games"]}'
+                         + (f', {x["left"]} left' if x["left"] != x["games"] else "")
+                         + (f', {escape(x["status"].lower())}' if x["status"] != "Healthy" else "")
+                         + ")" for x in xs)
+
+    opp4 = n4(S["opp"])
+
+    def row(label, sub, r, cls, mine):
+        c4 = n4(r)
+        k = (" hi" if c4 > opp4 else " lo" if c4 < opp4 else "") if mine else ""
+        cells = f'<td class="lg-c vol-t{k}">{c4}</td>'
+        cells += "".join(f'<td class="lg-c">{sum(1 for x in r if x["games"] == c) or "–"}</td>' for c in cols)
+        return f'<tr class="{cls}"><th scope="row">{label}<small>{sub}</small></th>{cells}</tr>'
+
+    rows = row("You", "Roster as it stands", S["now"], "lg-me", True)
+    if S.get("plan"):
+        rows += row("You", "After your streaming plan", S["plan"], "lg-plan", True)
+    rows += row(escape(opp_name), "Roster as it stands", S["opp"], "lg-opp", False)
+    head = f'<th>{"4+ games" if top > 4 else "4 games"}</th>' + "".join(f'<th>{c} game{"s" if c != 1 else ""}</th>' for c in cols)
+    me4 = n4(S["now"])
+    d = me4 - opp4
+    line = (f'You have <strong>{me4}</strong> player{"s" if me4 != 1 else ""} with 4 or more games this week; '
+            f'{escape(opp_name)} has <strong>{opp4}</strong>'
+            + ("." if d == 0 else f' ({_signed(d)} for you).'))
+    if S.get("plan"):
+        p4 = n4(S["plan"])
+        line += f' After the streaming plan you’d have <strong>{p4}</strong>.'
+    lists = (f'<p class="dc" style="margin:6px 0 0"><b>Yours:</b> {names(S["now"])}</p>'
+             + (f'<p class="dc" style="margin:4px 0 0"><b>After the plan:</b> {names(S["plan"])}</p>' if S.get("plan") else "")
+             + f'<p class="dc" style="margin:4px 0 0"><b>{escape(opp_name)}:</b> {names(S["opp"])}</p>')
+    return (f'<h3 class="vol-h">Players with 4 games this week</h3>'
+            f'<p class="lift" style="font-size:1rem">{line}</p>'
+            f'<p class="hint">Every player on the roster (IR not included) by how many NBA games his team has across the whole '
+            f'matchup, including games already played. Injured players are counted and marked. A streamer only plays for you '
+            f'from the day you add him, so “left” shows his games still to come.</p>'
+            f'<div class="scroll"><table class="st lg vol"><thead><tr><th>Team</th>{head}</tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>{lists}')
 
 
 def _join_words(xs):
@@ -1574,6 +1675,7 @@ def render(data, plan):
 <div class="stack">
 <section class="panel"><h2>Daily lineup</h2>{_days(plan)}</section>
 <section class="panel"><h2>Game plan</h2><ul class="notes">{notes}</ul></section></div></div>
+{_volume(plan, data)}
 {_league(plan)}
 <section class="panel"><h2>What if…</h2>{_whatif(plan)}</section>
 {_byday(plan, "This week")}
@@ -1602,6 +1704,18 @@ def summary(data, plan):
     swing = [CATS[i][0] for i in range(9) if 0.2 <= res["catP"][i] < 0.8]
     if swing:
         lines.append("Swing: " + ", ".join(swing))
+    V = plan.get("volume")
+    if V and V["days"]:
+        S = V.get("sched") or {}
+        if S.get("now") and S.get("opp"):
+            n4 = lambda r: sum(1 for x in r if x["games"] >= 4)
+            lines.append(f"Players with 4+ games: you {n4(S['now'])}"
+                         + (f" ({n4(S['plan'])} after the streaming plan)" if S.get("plan") else "")
+                         + f", {data['opp']['name']} {n4(S['opp'])}.")
+        g = f"Starter games left: you {V['now']['total']}"
+        if V.get("plan"):
+            g += f" ({V['plan']['total']} with the streaming plan)"
+        lines.append(g + f", {data['opp']['name']} {V['opp']['total']}.")
     dl = plan.get("deadlines") or []
     if dl:
         lines.append(f"{'Today' if dl[0]['today'] else dl[0]['label']}: make moves before {dl[0]['lock_txt']}, "
