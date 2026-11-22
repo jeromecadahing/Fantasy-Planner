@@ -219,12 +219,47 @@ def build_plan(data, cfg):
     stream_es = stream.pop("entries", None)
     plan_es = sorted(stream_es or my_es, key=lambda e: -e.prio)
     added = {m["add"] for m in stream.get("moves") or []} if stream_es else set()
-    lineup = _lineups(data, plan_es, entries(opp_players, EQUAL), days_left, slots, w, added)
+    opp_es = entries(opp_players, EQUAL)
+    lineup = _lineups(data, plan_es, opp_es, days_left, slots, w, added)
+    volume = _volume(data, my_es, plan_es if stream_es else None, opp_es, days_left, slots)
     from . import whatif
     return {"result": res, "weights": w, "cat_weights": dict(zip(CAT_NAMES, (round(x, 2) for x in w))), "lineup": lineup, "picks": picks, "pick_note": pick_note,
             "stream": stream, "notes": _notes(data, cfg, res, lineup), "trends": _trends(data),
             "whatif": whatif.grid(data, cfg, w, opp_tot), "scenario": whatif.scenario(data, cfg, w, opp_tot, res),
-            "plan_entries": stream_es, "slots": slots, "opp_tot": opp_tot}
+            "plan_entries": stream_es, "slots": slots, "opp_tot": opp_tot, "volume": volume}
+
+
+def _day_starts(es, d, slots):
+    """Starter games on day d: (scheduled starters, expected starters given each player's chance to play, benched)."""
+    cand = [e for e in es if e.p["games"][d] and e.p["prob"][d] > 0 and e.frm <= d < e.until]
+    on, _ = fill_slots([e.elig for e in cand], slots)
+    start = [e for e, x in zip(cand, on) if x]
+    return len(start), sum(e.p["prob"][d] for e in start), len(cand) - len(start)
+
+
+def _volume(data, now_es, plan_es, opp_es, days_left, slots):
+    """Starter games per day for the rest of the matchup: your roster as it stands, your roster with the
+    streaming plan (None when there's no plan), and your opponent's roster as it stands."""
+    def row(es):
+        if es is None:
+            return None
+        days = [_day_starts(es, d, slots) for d in days_left]
+        return {"games": [g for g, _, _ in days], "exp": [round(x, 1) for _, x, _ in days],
+                "bench": [b for _, _, b in days], "total": sum(g for g, _, _ in days),
+                "exp_total": round(sum(x for _, x, _ in days), 1), "bench_total": sum(b for _, _, b in days)}
+    def sched(es):
+        """Each player on the roster (after any planned drops) with his NBA games across the whole matchup
+        and how many are still to come, most games first."""
+        if es is None:
+            return None
+        today = data["today_index"]
+        out = [{"name": e.p["name"], "games": sum(1 for g in e.p["games"] if g),
+                "left": sum(1 for d in range(today, len(e.p["games"])) if e.p["games"][d]),
+                "status": e.p["status"]} for e in es if e.until >= 10 ** 6]
+        return sorted(out, key=lambda x: (-x["games"], x["name"]))
+    return {"days": [data["days"][d]["label"] for d in days_left], "slots": n_slots(slots),
+            "now": row(now_es), "plan": row(plan_es), "opp": row(opp_es),
+            "sched": {"now": sched(now_es), "plan": sched(plan_es), "opp": sched(opp_es)}}
 
 
 def _lineups(data, my_es, opp_es, days_left, slots, w=EQUAL, added=()):
