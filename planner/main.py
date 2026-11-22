@@ -38,6 +38,11 @@ def main():
     plan["nextweek"] = nextweek.plan(data, cfg, plan)
     plan["nextmatch"] = nextmatch.project(data, plan["slots"])
     plan["byday"] = byday.build(data, cfg, plan, plan["nextweek"])
+    try:
+        plan["volume_next"] = nextmatch.volume(data, plan, plan["nextweek"], plan["slots"])
+    except Exception as exc:  # a problem here shouldn't stop the rest of the page
+        print(f"Next week's games per day skipped: {exc}", file=sys.stderr)
+        plan["volume_next"] = None
     plan["deadlines"] = extras.deadlines(data, plan, cfg)
     plan["league"] = league.table(data, cfg, plan, plan["slots"])
     page = os.environ.get("PAGE_URL", "")
