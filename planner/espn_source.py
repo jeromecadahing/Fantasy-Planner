@@ -599,6 +599,19 @@ def _injury_watch(lg, cfg, me_team, me_players, fa_pool, sp_date, team_games, to
     return out, missing
 
 
+def _record(team):
+    """Season record as ESPN reports it (matchup wins in most-categories leagues, category wins in
+    each-category leagues), or None if ESPN doesn't give one."""
+    try:
+        w, l_, t = (int(getattr(team, k, 0) or 0) for k in ("wins", "losses", "ties"))
+    except (TypeError, ValueError):
+        return None
+    if w + l_ + t == 0:
+        return None
+    rank = getattr(team, "standing", None)
+    return {"w": w, "l": l_, "t": t, "rank": int(rank) if isinstance(rank, (int, float)) and rank else None}
+
+
 def _next_opp(lg, cfg, opp, others):
     """Next matchup period's opponent from ESPN's schedule, with his roster as already loaded.
 
@@ -659,7 +672,8 @@ def load(cfg):
             else:
                 print(f"{team.team_name}: skipped {p.name} (no stats or projection from ESPN)")
         sofar, note = _sofar(stats, [p for p in players if not p["ir"]])
-        return {"name": team.team_name, "id": team.team_id, "sofar": sofar, "players": players}, note
+        return {"name": team.team_name, "id": team.team_id, "sofar": sofar, "players": players,
+                "record": _record(team)}, note
 
     me, note = side(me_team, me_stats)
     opp, _ = side(opp_team, opp_stats)
@@ -682,6 +696,12 @@ def load(cfg):
             print(f"Skipped {t.team_name} in the league projection: {exc}")
 
     next_opp = _next_opp(lg, cfg, opp, others)
+    # Who plays whom this week, for the league-wide matchup projections.
+    pairs = []
+    for b in boxes:
+        h, a = getattr(b.home_team, "team_id", b.home_team), getattr(b.away_team, "team_id", b.away_team)
+        if h is not None and a is not None:
+            pairs.append([h, a])
 
     fa_raw = _with_stats(lg, _free_agents(lg, cfg.fa_pool))
     fa = [x for x in (_player(p, lg.year, days, today_index, team_games, team_tips=team_tips) for p in fa_raw) if x]
@@ -710,7 +730,7 @@ def load(cfg):
         "adds_used": _adds_used(lg, cfg), "sofar_note": note, "lineup_slots": _lineup_slots(counts),
         "ir_slots": int(counts.get("13", 0) or 0), "ir_used": sum(1 for p in me_team.roster if p.lineupSlot == "IR"),
         "injury_watch": watch, "watch_missing": missing,
-        "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "next_opp": next_opp, "next_days": _CTX["next_days"],
+        "me": me, "opp": opp, "fa": fa, "extra": extra, "others": others, "pairs": pairs, "next_opp": next_opp, "next_days": _CTX["next_days"],
         "roster_fp": combined(fingerprint((p.playerId, p.lineupSlot == "IR") for p in me_team.roster),
                               fingerprint((p.playerId, p.lineupSlot == "IR") for p in opp_team.roster)),
         # Every NBA team's games on the last day of this matchup and on each day of next week.
