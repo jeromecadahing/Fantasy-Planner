@@ -124,6 +124,13 @@ Adds reset when a new matchup starts, so any you still have on the last day are 
 
 Next week is assumed to be the Monday to Sunday after this matchup. For a longer one, like the All-Star break, set `NEXT_MATCHUP_END`.
 
+## Games per day
+Under the daily lineup, a table counts how many of your players start each remaining day of the matchup, side by side with your opponent: one row for your roster as it stands, one for your roster if you follow the streaming plan, and one for your opponent's roster. The last column totals the rest of the week. A day is green when you have more starters than your opponent and red when you have fewer.
+
+Only starters count, up to your active spots, so games that would sit on a full bench are left out (and noted under the day). Day-to-day players count as playing; the "expected" figure under each total scales every game by his chance to play. Games already played this week aren't included. The Discord summary gets the same totals in one line.
+
+Underneath, **Players with 4 games this week** counts the players on each roster (IR not included) by how many NBA games their team has across the whole matchup, including games already played: your roster as it stands, after the streaming plan, and your opponent's. It names each 4-game player, with how many of his games are still to come and any injury status. In a longer matchup the first column becomes 4+ games. The Discord summary includes this count too.
+
 ## Your week across the league
 Under the streaming plan, a table projects every team's final 9-category totals for this matchup week: what each team has already earned, plus the rest of the week simulated from its current roster. It shows your rank in each category (green near the top, red near the bottom), a second row for your totals if you follow the streaming plan, and your chance of beating each team if you played them. Other teams are shown without any pickups, so they may finish a little higher than projected.
 
