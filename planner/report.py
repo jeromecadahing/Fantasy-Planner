@@ -202,7 +202,8 @@ table.lg th[scope=row]{text-align:left;font:600 .95rem/1.2 Barlow,sans-serif;col
 table.lg th[scope=row] small{display:block;font-weight:400;color:var(--muted);font-size:.78rem}
 table.lg td.lg-c small{display:block;font-size:.72rem;color:var(--muted);font-weight:400}
 table.lg td.lg-c.hi{color:var(--good)}table.lg td.lg-c.hi small{color:var(--good)}
-table.vol{min-width:0}.vol-h{margin:22px 0 6px;font:700 1.15rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}table.vol thead th small{display:block;font:400 .72rem/1.2 Barlow,sans-serif;color:var(--muted)}
+.lgcg{grid-template-columns:repeat(3,1fr)}@media (max-width:560px){.lgcg{grid-template-columns:1fr 1fr}}.lgc{text-align:left;padding:8px}.lgc span{font-size:1.25rem}.lgc small{display:block;font-size:.74rem;line-height:1.25;color:var(--muted)}.lgc small.pos{color:var(--good)}.lgc small.neg{color:var(--bad)}
+.lg-more{margin-top:16px}.lg-more summary{cursor:pointer;font-weight:600}table.vol{min-width:0}.vol-h{margin:22px 0 6px;font:700 1.15rem/1.1 "Barlow Condensed","Arial Narrow",sans-serif}table.vol thead th small{display:block;font:400 .72rem/1.2 Barlow,sans-serif;color:var(--muted)}
 table.vol td.vol-t{font-weight:700;border-left:1px solid var(--rule)}
 table.lg td.lg-c.lo{color:var(--bad)}table.lg td.lg-c.lo small{color:var(--bad)}
 table.lg tr.lg-me th[scope=row],table.lg tr.lg-me td,table.lg tr.lg-plan th[scope=row],table.lg tr.lg-plan td{background:var(--you-soft)}
@@ -647,9 +648,9 @@ def _scenario_next(sc):
 WI_JS = r"""(function(){
 var D=JSON.parse(document.getElementById('wi-data').textContent);
 var T=document.getElementById('wi-day'),A=document.getElementById('wi-add'),R=document.getElementById('wi-drop'),O=document.getElementById('wi-out'),B=document.getElementById('wi-best');
+var NX=D.nx;
 function opt(sel,t,v){var o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);}
-function gm(k){return k+' game'+(k==1?'':'s');}
-D.days.forEach(function(d,i){opt(T,(d.today?'Today, ':'')+d.label,i);});
+D.days.forEach(function(d,i){opt(T,d.next?'Next week, from '+d.label:(d.today?'Today, ':'')+d.label,i);});
 function sg(v,s){return (v>0?'+':v<0?'\u2212':'\u00b1')+Math.abs(v)+(s||'');}
 function tone(v){return v>0?'pos':v<0?'neg':'flat';}
 function ms(dt){var p=dt.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2]);}
@@ -666,52 +667,78 @@ function b2bPairs(g,from){
   for(var i=1;i<ds.length;i++){if(ms(D.dl[ds[i]].dt)-ms(D.dl[ds[i-1]].dt)===864e5)pairs.push(D.dl[ds[i-1]].l+'\u2013'+D.dl[ds[i]].l);}
   return pairs;
 }
-// A drop is "safe" if it's an open spot, or a non-keeper who isn't better than the add over the season.
+// This week's and next week's effect of add a / drop r, starting on day d (null when it doesn't apply).
+function wk(d,a){return d.next?null:d.rows[a];}
+function nw(a){return NX&&NX.rows[a]?NX.rows[a]:null;}
+// Ranking: this week's change plus next week's, so a move near the end of the week is judged on both.
+function score(d,a,r){var w=wk(d,a),n=nw(a);return (w?w[r][0]:0)+(n?n[r][0]:0);}
+function any(d,a){return !!(wk(d,a)||nw(a));}
 function safe(a,r){var dp=D.drops[r];return dp.open||(!dp.keep&&dp.sv<=D.adds[a].sv);}
-function bestDrop(row,a){var bi=-1;row.forEach(function(x,i){if(!safe(a,i))return;if(bi<0||x[0]>row[bi][0]||(x[0]===row[bi][0]&&x[1]>row[bi][1]))bi=i;});return bi;}
+function bestDrop(d,a){var bi=-1,bs=0;D.drops.forEach(function(_,i){if(!safe(a,i))return;var s=score(d,a,i);if(bi<0||s>bs){bi=i;bs=s;}});return bi;}
 function addRank(a,r){var n=1;D.drops.forEach(function(dp,i){if(i!==r&&!dp.open&&dp.sv>D.adds[a].sv)n++;});return n;}
+function pct(v){return sg(Math.round(v/10),'%');}
 function fill(){
  var d=D.days[+T.value],ka=A.value,kr=R.value;A.innerHTML='';R.innerHTML='';
- var order=D.adds.map(function(p,i){var row=d.rows[i],bd=row?bestDrop(row,i):-1;return {i:i,bd:bd,best:bd>=0?row[bd][0]:-1e9};});
+ var order=D.adds.map(function(p,i){var bd=any(d,i)?bestDrop(d,i):-1;return {i:i,bd:bd,best:bd>=0?score(d,i,bd):-1e9};});
  order.sort(function(x,y){return y.best-x.best;});
- order.forEach(function(o){var p=D.adds[o.i],s=sched(p.g,d.t,1e9);
-   var lab=p.name+' ('+p.team+(s.n?': '+s.txt+(s.b2b?', back-to-back':''):', no games left')+(p.status!=='Healthy'?', '+p.status:'')+')';
-   if(s.n)lab+=o.bd>=0?'  best '+sg(Math.round(o.best/10),'%'):'  (only by cutting a keeper)';
+ order.forEach(function(o){var p=D.adds[o.i],s=d.next?{n:p.ng.length,txt:p.ng.join(', ')}:sched(p.g,d.t,1e9);
+   var games=d.next?(s.n?'next week '+s.txt:'no games next week'):(s.n?s.txt:'no games left')+(NX&&!d.next?'; next week '+p.ng.length:'');
+   var lab=p.name+' ('+p.team+': '+games+(s.b2b?', back-to-back':'')+(p.status!=='Healthy'?', '+p.status:'')+')';
+   if(any(d,o.i)){var w=wk(d,o.i),n=nw(o.i);
+     if(o.bd>=0)lab+='  '+(w?pct(w[o.bd][0])+' this week':'')+(w&&n?', ':'')+(n?pct(n[o.bd][0])+' next':'');
+     else lab+='  (only by cutting a keeper)';}
    opt(A,lab,o.i);});
- D.drops.forEach(function(p,i){var s=sched(p.g,d.t,1e9);opt(R,p.open?p.name:p.name+' (#'+p.rank+' season'+(p.keep?', keeper':'')+'; gives up '+(s.n?s.txt:'nothing')+')',i);});
+ D.drops.forEach(function(p,i){var s=d.next?{n:p.ng.length,txt:p.ng.join(', ')}:sched(p.g,d.t,1e9);
+   opt(R,p.open?p.name:p.name+' (#'+p.rank+' season'+(p.keep?', keeper':'')+'; gives up '+(s.n?(d.next?'next week ':'')+s.txt:'nothing')+')',i);});
  if(ka!=='')A.value=ka; if(kr!=='')R.value=kr;
- var top=order[0];
- if(top&&top.bd>=0&&top.best>=10){var row=d.rows[top.i],bd=top.bd;
-   B.innerHTML='<p>Best move starting '+d.label+': <strong>add '+D.adds[top.i].name+'</strong>, '+(D.drops[bd].open?'using your open spot':'drop '+D.drops[bd].name)+' <span class="delta pos">'+sg(Math.round(row[bd][0]/10),'%')+'</span> <button type="button" class="wib" id="wi-show">Show it</button></p>';
+ var top=order[0],when=d.next?'from '+d.label+' (next week)':'starting '+d.label;
+ if(top&&top.bd>=0&&top.best>=10){var bd=top.bd,w=wk(d,top.i),n=nw(top.i);
+   B.innerHTML='<p>Best move '+when+': <strong>add '+D.adds[top.i].name+'</strong>, '+(D.drops[bd].open?'using your open spot':'drop '+D.drops[bd].name)
+     +(w?' <span class="delta '+tone(w[bd][0])+'">'+pct(w[bd][0])+' this week</span>':'')
+     +(n?' <span class="delta '+tone(n[bd][0])+'">'+pct(n[bd][0])+' next week</span>':'')
+     +' <button type="button" class="wib" id="wi-show">Show it</button></p>';
    document.getElementById('wi-show').onclick=function(){A.value=top.i;R.value=bd;show();};
- } else B.innerHTML='<p class="dc">No pickup starting '+d.label+' raises your chance to win by a point or more. Saving the add may be the better play.</p>';
+ } else B.innerHTML='<p class="dc">No pickup '+when+' raises your chances by a point or more'+(NX&&!d.next?' across this week and next':'')+'. Saving the add may be the better play.</p>';
 }
-function show(){
- var d=D.days[+T.value],a=+A.value,r=+R.value,p=D.adds[a],dp=D.drops[r],row=d.rows[a];
- if(!row){O.innerHTML='<p class="empty">'+p.name+' has no games left from '+d.label+', so adding him then wouldn\u2019t change anything. Pick an earlier day.</p>';return;}
- var x=row[r],b=Math.round(D.base.win*100),aw=Math.max(0,Math.min(100,b+Math.round(x[0]/10))),dw=aw-b;
- var cats=(D.base.cats+x[1]/100).toFixed(1),st=x[3]/10,cells='';
- D.cats.forEach(function(c,i){var bb=Math.round(D.base.catP[i]*100),aa=Math.max(0,Math.min(100,bb+x[2][i])),dd=aa-bb;
+function cg(base,x){var cells='';D.cats.forEach(function(c,i){var bb=Math.round(base.catP[i]*100),aa=Math.max(0,Math.min(100,bb+x[2][i])),dd=aa-bb;
   cells+='<div class="cc'+(dd>=3?' pos':dd<=-3?' neg':'')+'"><b>'+c+'</b><span>'+aa+'%</span><small class="'+tone(dd)+'">'+sg(dd)+'</small></div>';});
- var sa=sched(p.g,d.t,1e9),sd=sched(dp.g,d.t,1e9),pairs=b2bPairs(p.g,d.t);
- var who=dp.open?'using your open roster spot':'dropping '+dp.name+(sd.n?' (he gives up '+sd.txt+')':' (no games left to give up)');
- var best=bestDrop(row,a),bnote=best>=0&&best!==r?' Best drop that doesn\u2019t cost you long-term: '+(D.drops[best].open?'your open spot':D.drops[best].name)+' ('+sg(Math.round(row[best][0]/10),'%')+').':'';
+  return '<div class="cg">'+cells+'</div>';}
+function block(title,base,x,extra){var b=Math.round(base.win*100),aw=Math.max(0,Math.min(100,b+Math.round(x[0]/10))),dw=aw-b,st=x[3]/10;
+ return '<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(dw)+'">'+aw+'%</span> '+title+' <span class="delta '+tone(dw)+'">'+sg(dw,'%')+'</span></p>'
+  +'<p>Expected categories '+base.cats.toFixed(1)+' \u2192 '+(base.cats+x[1]/100).toFixed(1)+'; '
+  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.'+(extra||'')+'</p>'+cg(base,x);}
+function show(){
+ var d=D.days[+T.value],a=+A.value,r=+R.value,p=D.adds[a],dp=D.drops[r],w=wk(d,a),n=nw(a);
+ if(!w&&!n){O.innerHTML='<p class="empty">'+p.name+' has no games '+(d.next?'next week':'left from '+d.label+(NX?' or next week':''))+', so adding him wouldn\u2019t change anything.</p>';return;}
+ var best=bestDrop(d,a),bnote=best>=0&&best!==r?' Best drop that doesn\u2019t cost you long-term: '+(D.drops[best].open?'your open spot':D.drops[best].name)+'.':'';
  var warn='';
  if(!safe(a,r)){var worse=dp.sv>p.sv;
-   warn='<p class="warn"><strong>Long-term check:</strong> this number only covers this matchup. '+dp.name+' is your #'+dp.rank+' player over the season'
+   warn='<p class="warn"><strong>Long-term check:</strong> these numbers only cover this week and next. '+dp.name+' is your #'+dp.rank+' player over the season'
      +(worse?', and '+p.name+' would only be your #'+addRank(a,r)+'.':(dp.keep&&dp.rank>6?' and on your keep list.':'.'))
-     +' Dropping him is permanent, so a one-week gain probably isn\u2019t worth it'+(best<0?'. None of your other drops are safe for this add either.':'.')+'</p>';}
- O.innerHTML='<p class="lift"><span class="cd">'+b+'%</span> <span class="arrow">\u2192</span> <span class="cd '+tone(dw)+'">'+aw+'%</span> chance to win the week <span class="delta '+tone(dw)+'">'+sg(dw,'%')+'</span></p>'
-  +'<p>Adding '+p.name+' ('+p.team+'), who plays '+sa.txt+' for you, and '+who+'. '
-  +(d.act?'Make the move in ESPN on '+d.act+'. ':'')+'Expected categories '+D.base.cats.toFixed(1)+' \u2192 '+cats+'; '
-  +(Math.abs(st)<0.5?'about the same number of':(st>0?'+':'')+st.toFixed(1))+' starter games.'+bnote+'</p>'+warn
-  +(pairs.length?'<p class="dc">Back-to-back: '+pairs.join(', ')+'. Teams sometimes rest players on the second night; the simulation doesn\u2019t assume that, so check the news before relying on both games.</p>':'')
-  +(p.trend?'<p class="dc">'+p.trend+'</p>':'')+'<div class="cg">'+cells+'</div>';
+     +' Dropping him is permanent, so a short-term gain probably isn\u2019t worth it'+(best<0?'. None of your other drops are safe for this add either.':'.')+'</p>';}
+ var h='';
+ if(d.next){
+   var who=dp.open?'using your open roster spot':'dropping '+dp.name+(dp.ng.length?' (he gives up '+dp.ng.join(', ')+')':'');
+   h+='<p>Adding '+p.name+' ('+p.team+'), who plays '+(p.ng.length?p.ng.join(', '):'no games')+' next week, and '+who+'. '
+     +'Done on '+d.label+' or later, this uses one of next week\u2019s adds. Your roster and '+NX.name+'\u2019s otherwise as they stand today.'+bnote+'</p>'+warn;
+ } else {
+   var sa=sched(p.g,d.t,1e9),sd=sched(dp.g,d.t,1e9),pairs=b2bPairs(p.g,d.t);
+   var who=dp.open?'using your open roster spot':'dropping '+dp.name+(sd.n?' (he gives up '+sd.txt+')':' (no games left to give up)');
+   h+='<p>Adding '+p.name+' ('+p.team+'), who plays '+(sa.n?sa.txt:'no more games')+' for you this week, and '+who+'. '+(d.act?'Make the move in ESPN on '+d.act+'. ':'')+bnote+'</p>'+warn;
+   if(w)h+='<h3 class="vol-h">This week</h3>'+block('chance to win this week',D.base,w[r]);
+   else h+='<p class="dc">No games for him this week, so only next week changes.</p>';
+   if(pairs.length)h+='<p class="dc">Back-to-back: '+pairs.join(', ')+'. Teams sometimes rest players on the second night; the simulation doesn\u2019t assume that, so check the news before relying on both games.</p>';
+ }
+ if(n)h+='<h3 class="vol-h">Next week vs '+NX.name+'</h3>'+block('chance to win next week',NX.base,n[r],' Season-long numbers; '+NX.name+'\u2019s roster as it stands today.');
+ else if(NX)h+='<p class="dc">'+p.name+' has no games next week.</p>';
+ if(p.trend)h+='<p class="dc">'+p.trend+'</p>';
+ O.innerHTML=h;
 }
-T.addEventListener('change',function(){fill();show();});
-A.addEventListener('change',function(){var a=+A.value,row=D.days[+T.value].rows[a],bd=row?bestDrop(row,a):-1;if(bd>=0)R.value=bd;show();});
+T.addEventListener('change',function(){fill();var d=D.days[+T.value],a=+A.value,bd=bestDrop(d,a);if(bd>=0)R.value=bd;show();});
+A.addEventListener('change',function(){var a=+A.value,bd=bestDrop(D.days[+T.value],a);if(bd>=0)R.value=bd;show();});
 R.addEventListener('change',show);
-fill();var d0=D.days[0],o0=+A.value,b0=d0.rows[o0]?bestDrop(d0.rows[o0],o0):-1;if(b0>=0)R.value=b0;show();
+// Start on the last day's view when only one day is left, so next week's effect is in view.
+fill();var d0=D.days[0],o0=+A.value,b0=bestDrop(d0,o0);if(b0>=0)R.value=b0;show();
 })();"""
 
 
@@ -726,7 +753,11 @@ def _whatif(plan):
     res = plan["result"]
     data["base"] = {"win": res["win"], "cats": res["cats"], "catP": res["catP"]}
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-    return (sc + '<p class="hint">Pick a day, a pickup and a drop to see how your chances change.</p>'
+    hint = ('Pick a day, a pickup and a drop to see how your chances change this week and next. Picks are ranked on both '
+            'weeks together, so a move near the end of the week isn’t judged on one day alone. “Next week” in the first '
+            'list is for moves made once the new week starts.' if g.get("nx") else
+            'Pick a day, a pickup and a drop to see how your chances change.')
+    return (sc + f'<p class="hint">{hint}</p>'
             '<div class="wi"><label>Starting<select id="wi-day"></select></label><label>Add<select id="wi-add"></select></label>'
             '<label>Drop<select id="wi-drop"></select></label></div><div class="wibest" id="wi-best"></div><div class="wiout" id="wi-out" aria-live="polite"></div>'
             f'<script type="application/json" id="wi-data">{blob}</script><script>{WI_JS}</script>' + help_)
@@ -768,58 +799,77 @@ def _nextweek(plan, data):
     if not nw.get("range"):
         return f'<p class="empty">{escape(nw.get("note") or "Next week’s schedule isn’t available yet.")}</p>'
     day = escape(nw["day"])
-    intro = (f'<p class="hint">Adds reset for next week, so any left on {day} are free. Moves for '
+    wd = day.split()[0]
+    intro = (f'<p class="hint">Adds reset for next week, so any left on {day} are free, as long as the move is made on '
+             f'{wd} itself. One made after the new week starts uses one of next week’s adds instead. Moves for '
              f'{escape(nw["range"])}.</p>')
-    games = nw.get("roster_games") or []
-    few = [f"{escape(n)} ({g})" for n, g in games if g <= 2]
-    roster_line = (f'<p class="dc" style="margin:0 0 10px">Fewest games next week on your roster: {", ".join(few)}.</p>'
-                   if few else "")
+    alt = _nextweek_alt(nw, wd)
     if not nw.get("moves"):
         stash = (f'<p class="dc">A spare add could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
                  if nw.get("stash") else "")
-        return intro + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + stash + _fa_cross_html(data)
+        base = nw.get("base_starts")
+        nothing = (f'<p class="lift" style="font-size:1rem">With no next-week moves: <strong>{base:.0f}</strong> expected starter games next week.</p>'
+                   if base is not None else "")
+        return intro + nothing + f'<p class="empty">{escape(nw.get("note") or "")}</p>' + alt + stash + _fa_cross_html(data)
     gain = nw["after_starts"] - nw["base_starts"]
-    roster_line = ""  # the Schedule section on the same tab shows this in full
-    h = (intro + f'<p class="lift"><span class="cd">{nw["base_starts"]:.0f}</span> <span class="arrow">→</span> '
-         f'<span class="cd strong">{nw["after_starts"]:.0f}</span> expected starter games next week'
+    h = (intro + f'<p class="lift">No moves: <span class="cd">{nw["base_starts"]:.0f}</span> <span class="arrow">→</span> '
+         f'with these moves: <span class="cd strong">{nw["after_starts"]:.0f}</span> expected starter games next week'
          f'{f" (+{gain:.1f})" if gain >= 0.5 else ""}, using {len(nw["moves"])} of your {nw["adds_left"]} spare '
-         f'add{"s" if nw["adds_left"] != 1 else ""}.</p>' + roster_line + '<ol class="steps">')
+         f'add{"s" if nw["adds_left"] != 1 else ""}.</p><ol class="steps">')
     tag = '<span class="tag now">Do today</span>' if nw.get("today") else '<span class="tag">Planned</span>'
     for m in nw["moves"]:
         status = f' ({escape(m["add_status"])})' if m["add_status"] != "Healthy" else ""
-        if m["drop"]:
-            after = ""
-            if m["drop_after_game"]:
-                after = f" after his {day.split()[0]} game" + (f" ends (about {escape(clock(m['free_from']))} UK)" if m.get("free_from") else "")
-            drop = (f'Drop {escape(m["drop"])}{after}'
-                    + f' ({len(m["drop_days"])} game{"s" if len(m["drop_days"]) != 1 else ""} next week).'
-                    + ("" if m["drop_is_streamer"] else " This one is a permanent cut."))
-        else:
+        perm = "" if m["drop_is_streamer"] else " This one is a permanent cut."
+        nxt = f' ({len(m["drop_days"])} game{"s" if len(m["drop_days"]) != 1 else ""} next week)'
+        if not m["drop"]:
             drop = "Use your open roster spot."
+        elif m.get("kind") == "settled":
+            drop = (f'Drop {escape(m["drop"])}{nxt}. He’d start on {wd}, but this week looks settled '
+                    f'({round(nw.get("win_now", 0.5) * 100)}% to win), so losing his game won’t change the result.{perm}')
+        elif m.get("drop_plays_today"):
+            drop = (f'Drop {escape(m["drop"])}{nxt}. He plays {wd} but wouldn’t make your lineup, '
+                    f'so this costs nothing this week.{perm}')
+        else:
+            drop = f'Drop {escape(m["drop"])}{nxt}. He doesn’t play {wd}, so this week isn’t affected.{perm}'
+        if m.get("add_starts_today"):
+            t = f' ({escape(clock(m["add_tip"]))} UK)' if m.get("add_tip") else ""
+            timing = (f'<p><strong>Before he tips off on {wd}{t}</strong>, so his {wd} game counts for you this week too.</p>')
+        else:
+            timing = (f'<p>Any time on {wd}. Earlier is safer: a move made late at night can land in the new week '
+                      f'and use one of next week’s adds.</p>')
         trend = (f'<p class="wv">{_wv(m["add_waiver"])}</p>' if m.get("add_waiver") else "") + \
             (f'<p>{escape(m["trend"])}</p>' if m.get("trend") else "")
         fa = next((p for p in data["fa"] if p["name"] == m["add"]), None)
         if fa is not None:
             x = _sched(fa, data)
-            extra = []
-            if x["cross"]:
-                last_day = (_cross_names(data) or ("Sun", "Mon"))[0]
-                extra.append(f"He also plays {last_day}, so he can fill an open spot that day too")
             if x["b2b_next"]:
-                extra.append(f"{x['b2b_next']} back-to-back{'s' if x['b2b_next'] != 1 else ''} next week")
-            if extra:
-                trend = f'<p>{escape(". ".join(extra))}.</p>' + trend
+                trend = f'<p>{x["b2b_next"]} back-to-back{"s" if x["b2b_next"] != 1 else ""} next week.</p>' + trend
         h += (f'<li class="step"><div class="sh"><span class="dn">{day}</span>{tag}</div>'
               f'<p class="act"><strong>{"Claim" if m.get("add_waiver") else "Add"} {escape(m["add"])}</strong> <span class="dc">{escape(m["add_team"])}{status}</span></p>'
               f'<p>{drop} He plays {len(m["add_days"])} game{"s" if len(m["add_days"]) != 1 else ""} next week: '
-              f'{escape(", ".join(m["add_days"]))}.</p>{trend}</li>')
-    h += "</ol>" + _fa_cross_html(data)
+              f'{escape(", ".join(m["add_days"]))}.</p>{timing}{trend}</li>')
+    h += "</ol>" + alt + _fa_cross_html(data)
     if nw.get("stash"):
         h += f'<p class="dc">Spare add left over? It could also stash {escape(_join_words(nw["stash"]))} from the Injury watch tab.</p>'
-    late = any(m["drop_after_game"] for m in nw["moves"])
-    h += ('<p class="hint" style="margin-top:10px">Counts only games on days you have a free lineup spot.'
-          + (" A move made after ESPN starts the new week uses one of next week’s adds." if late else "") + "</p>")
+    h += ('<p class="hint" style="margin-top:10px">Counts only games on days you have a free lineup spot. Drops come from players '
+          'who don’t start on the last day, so this week’s stats aren’t touched. Each move has to beat doing nothing by a clear margin.</p>')
     return h
+
+
+def _nextweek_alt(nw, wd):
+    """A bigger move left out of the plan because its drop starts on the last day of a close week."""
+    a = nw.get("alt")
+    if not a:
+        return ""
+    after = f' (about {escape(clock(a["free_from"]))} UK)' if a.get("free_from") else ""
+    g = a["starts_gain"]
+    return (f'<div class="warn" style="margin-top:12px"><p><strong>Your call:</strong> {"claim" if a.get("add_waiver") else "add"} '
+            f'{escape(a["add"])} ({escape(a["add_team"])}, {len(a["add_days"])} games next week) for {escape(a["drop"])}'
+            f'{f" would add about {g:.1f} starter games next week" if g >= 0.5 else " would help next week"}, but '
+            f'{escape(a["drop"])} starts for you on {wd} and this week is still live. Two ways to do it:</p>'
+            f'<p>Drop him <strong>before his game</strong>: uses this week’s free add, but you lose his {wd} stats.</p>'
+            f'<p>Drop him <strong>after his game</strong>{after}: keeps his stats, but the move will likely land in the new week and use '
+            f'one of next week’s adds, which is no different from doing it Monday morning before games.</p></div>')
 
 
 def _ord(n):
@@ -830,6 +880,96 @@ def _league(plan):
     L = plan.get("league")
     if not L:
         return ""
+    n = L["n_teams"]
+    me = next(t for t in L["teams"] if t.get("me"))
+    rivals_n = n - 1
+    line = f'As things stand you’d beat <strong>{L["beats"]} of {rivals_n}</strong> teams head-to-head this week'
+    if L.get("beats_plan") is not None:
+        line += f', or <strong>{L["beats_plan"]} of {rivals_n}</strong> with your streaming plan'
+    line += f'. Your average category rank is {L["avg_rank"]:.1f} out of {n}.'
+    rec = me.get("record")
+    if rec:
+        line += f' Season record {_rec(rec)}' + (f', {_ord(rec["rank"])} in the standings.' if rec.get("rank") else ".")
+    note = ("" if not L.get("partial") else
+            "<p class=dc>Only your matchup could be read this week, so this shows just you and your opponent.</p>")
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>Your week across the league</h2>'
+            f'<p class="lift" style="font-size:1rem">{line}</p>{note}'
+            f'{_league_cats(L)}{_league_games(L)}'
+            f'<details class="lg-more"><summary>Every team’s projected totals</summary>{_league_table(L)}</details></section>')
+
+
+def _rec(r):
+    return f'{r["w"]}–{r["l"]}' + (f'–{r["t"]}' if r.get("t") else "")
+
+
+def _gap(row, key):
+    g = row[key]["gap"]
+    if row["pct"]:
+        return f"{g * 100:.1f} pts"
+    return f"{g:.1f}" if g < 10 else f"{g:.0f}"
+
+
+def _league_cats(L):
+    """Your rank in each category, with how close the next team up and down is."""
+    S = L.get("standing")
+    if not S:
+        return ""
+    n = L["n_teams"]
+    third = max(1, round(n / 3))
+    cells = ""
+    for r in S:
+        cls = " pos" if r["rank"] <= third else " neg" if r["rank"] > n - third else ""
+        up = (f'<small>{_gap(r, "up")} behind {escape(r["up"]["name"])}</small>' if r["up"] else "<small>Top of the league</small>")
+        down = (f'<small>{_gap(r, "down")} ahead of {escape(r["down"]["name"])}</small>' if r["down"] else "<small>Bottom of the league</small>")
+        pl = (f'<small class="pos">{_ord(r["plan_rank"])} with plan</small>' if r["plan_rank"] and r["plan_rank"] < r["rank"] else
+              f'<small class="neg">{_ord(r["plan_rank"])} with plan</small>' if r["plan_rank"] and r["plan_rank"] > r["rank"] else "")
+        cells += f'<div class="cc lgc{cls}"><b>{escape(r["cat"])}</b><span>{_ord(r["rank"])}</span>{up}{down}{pl}</div>'
+    climb = sorted((r for r in S if r["up"] and r["up"]["rel"] < 0.5), key=lambda r: r["up"]["rel"])[:2]
+    risk = sorted((r for r in S if r["down"] and r["down"]["rel"] < 0.25 and r["rank"] <= n - third),
+                  key=lambda r: r["down"]["rel"])[:2]
+    far = [r for r in S if r["rank"] > n - third and (not r["up"] or r["up"]["rel"] > 0.6)]
+    bits = []
+    if climb:
+        bits.append("Closest to moving up: " + _join_words(
+            [f'{r["cat"]} ({_gap(r, "up")} behind {escape(r["up"]["name"])} for {_ord(r["rank"] - 1)})' for r in climb]))
+    if risk:
+        bits.append("Most at risk of slipping: " + _join_words(
+            [f'{r["cat"]} (only {_gap(r, "down")} ahead of {escape(r["down"]["name"])})' for r in risk]))
+    if far:
+        bits.append("Well behind in " + _join_words([r["cat"] for r in far])
+                    + ", so pickups for those won’t move you much this week")
+    summary = "".join(f"<p class='dc' style='margin:4px 0 0'>{b}.</p>" for b in bits if b)
+    return (f'<h3 class="vol-h">Where you rank in each category</h3>'
+            f'<p class="hint">Projected final totals for the week, ranked against all {n} teams. Under each: how far the next team '
+            f'up and down is. Percentages are in percentage points. Green: top third, red: bottom third.</p>'
+            f'<div class="cg lgcg">{cells}</div>{summary}')
+
+
+def _league_games(L):
+    """Every matchup this week with each side's chance."""
+    M = L.get("matchups")
+    if not M:
+        return ""
+    rows = ""
+    for m in M:
+        fav_a = m["win"] >= 0.5
+        pa, pb = round(m["win"] * 100), 100 - round(m["win"] * 100)
+        ra = f'<small>{_rec(m["ra"])}</small>' if m.get("ra") else ""
+        rb = f'<small>{_rec(m["rb"])}</small>' if m.get("rb") else ""
+        close = abs(m["win"] - 0.5) < 0.15
+        verdict = "Toss-up" if close else ("Favorite: " + escape(m["a"] if fav_a else m["b"]))
+        rows += (f'<tr{" class=lg-me" if m["mine"] else ""}><th scope="row">{escape(m["a"])}{ra}</th>'
+                 f'<td class="lg-c{" hi" if fav_a and not close else ""}">{pa}%<small>{m["cats"]:.1f} cats</small></td>'
+                 f'<td class="lg-c{" hi" if not fav_a and not close else ""}">{pb}%<small>{9 - m["cats"]:.1f} cats</small></td>'
+                 f'<th scope="row" style="text-align:right">{escape(m["b"])}{rb}</th><td class="lg-c">{verdict}</td></tr>')
+    return (f'<h3 class="vol-h">Around the league this week</h3>'
+            f'<p class="hint">Every matchup, projected the same way as yours: stats so far plus the rest of the week, '
+            f'other teams without pickups. Records are as ESPN reports them.</p>'
+            f'<div class="scroll"><table class="st lg"><thead><tr><th>Team</th><th>Chance</th><th>Their chance</th>'
+            f'<th style="text-align:right">Opponent</th><th>Outlook</th></tr></thead><tbody>{rows}</tbody></table></div>')
+
+
+def _league_table(L):
     n = L["n_teams"]
     third = max(1, round(n / 3))
 
@@ -860,30 +1000,42 @@ def _league(plan):
         rows += (f'<tr{" class=lg-opp" if t.get("opp") else ""}><th scope="row">{escape(t["name"])}{tag}</th>'
                  + "".join(cell(t, c, False) for c in range(9)) + chance(t) + "</tr>")
     head = "".join(f"<th>{escape(label)}</th>" for label, _, _ in CATS)
-    rivals_n = n - 1
-    line = f'As things stand you’d beat <strong>{L["beats"]} of {rivals_n}</strong> teams head-to-head this week'
-    if L.get("beats_plan") is not None:
-        line += f', or <strong>{L["beats_plan"]} of {rivals_n}</strong> with your streaming plan'
-    line += f'. Your average category rank is {L["avg_rank"]:.1f} out of {n}.'
-    best = [CATS[c][0] for c in range(9) if me["ranks"][c] == 1]
-    if best:
-        line += f' You’d lead the league in {_join_words(best)}.'
-    note = ("" if not L.get("partial") else
-            "<p class=dc>Only your matchup could be read this week, so the table shows just you and your opponent.</p>")
-    return (f'<section class="panel" style="margin-bottom:18px"><h2>Your week across the league</h2>'
-            f'<p class="lift" style="font-size:1rem">{line}</p>'
-            f'<p class="hint">Projected final totals, with rank out of {n}. Other teams are shown without pickups. '
+    return (f'<p class="hint" style="margin-top:8px">Projected final totals, with rank out of {n}. Other teams are shown without pickups. '
             f'Last column: your chance if you played them.</p>'
-            f'{note}<div class="scroll"><table class="st lg"><thead><tr><th>Team</th>{head}<th>Your chance</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table></div></section>')
+            f'<div class="scroll"><table class="st lg"><thead><tr><th>Team</th>{head}<th>Your chance</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>')
+
+
+THIS_WEEK = {"plan_row": "With your streaming plan", "plan_with": "With the streaming plan",
+             "plan_after": "After your streaming plan", "plan_list": "After the plan",
+             "left": "starter games left", "week": "this week", "from_plan": "from the plan",
+             "hint": "Players who start each day for the rest of the matchup",
+             "tail": "Games already played this week aren’t included.",
+             "four_hint": "Games already played count. Injured players are counted and marked. A streamer only plays "
+                          "for you from the day you add him, so “left” shows his games still to come."}
+NEXT_WEEK = {"plan_row": "After your planned moves", "plan_with": "After this week’s streaming plan and the Set up next week moves",
+             "plan_after": "After your planned moves", "plan_list": "After your planned moves",
+             "left": "starter games next week", "week": "next week", "from_plan": "from those moves",
+             "hint": "Players who’d start each day of next week",
+             "tail": "Your opponent’s roster is as it stands today. Who starts is ranked on season-long numbers.",
+             "four_hint": "Injured players are counted and marked."}
 
 
 def _volume(plan, data):
-    """Starter games per day, you vs your opponent: as things stand and with the streaming plan."""
-    V = plan.get("volume")
+    """This week's starter games per day, you vs your opponent."""
+    return _volume_panel(plan.get("volume"), data["opp"]["name"], "Games per day", THIS_WEEK)
+
+
+def _volume_next(plan):
+    """Next week's starter games per day, you vs next week's opponent."""
+    V = plan.get("volume_next")
+    return _volume_panel(V, V["opp_name"], "Games per day next week", NEXT_WEEK) if V else ""
+
+
+def _volume_panel(V, opp_name, title, T):
+    """Starter games per day, you vs your opponent: as things stand and with your planned moves."""
     if not V or not V["days"]:
         return ""
-    opp_name = data["opp"]["name"]
     now, pl, opp = V["now"], V["plan"], V["opp"]
 
     def cells(r, vs):
@@ -900,28 +1052,28 @@ def _volume(plan, data):
     head = "".join(f'<th>{escape(d.split()[0])}<small>{escape(" ".join(d.split()[1:]))}</small></th>' for d in V["days"])
     rows = (f'<tr class="lg-me"><th scope="row">You<small>Roster as it stands</small></th>{cells(now, opp)}</tr>')
     if pl:
-        rows += (f'<tr class="lg-plan"><th scope="row">You<small>With your streaming plan</small></th>{cells(pl, opp)}</tr>')
+        rows += (f'<tr class="lg-plan"><th scope="row">You<small>{T["plan_row"]}</small></th>{cells(pl, opp)}</tr>')
     rows += (f'<tr class="lg-opp"><th scope="row">{escape(opp_name)}<small>Roster as it stands</small></th>'
              f'{cells(opp, None)}</tr>')
 
     def gap(a):
         d = a - opp["total"]
         return f"level with {escape(opp_name)}" if d == 0 else f'{abs(d)} {"more" if d > 0 else "fewer"} than {escape(opp_name)}'
-    line = f'You have <strong>{now["total"]}</strong> starter games left, {gap(now["total"])} ({opp["total"]}).'
+    line = f'You have <strong>{now["total"]}</strong> {T["left"]}, {gap(now["total"])} ({opp["total"]}).'
     if pl:
-        line += (f' With the streaming plan you’d have <strong>{pl["total"]}</strong>, {gap(pl["total"])}'
-                 f' ({_signed(pl["total"] - now["total"])} from the plan).')
-    return (f'<section class="panel" style="margin-bottom:18px"><h2>Games per day</h2>'
+        line += (f' {T["plan_with"]} you’d have <strong>{pl["total"]}</strong>, {gap(pl["total"])}'
+                 f' ({_signed(pl["total"] - now["total"])} {T["from_plan"]}).')
+    return (f'<section class="panel" style="margin-bottom:18px"><h2>{title}</h2>'
             f'<p class="lift" style="font-size:1rem">{line}</p>'
-            f'<p class="hint">Players who start each day for the rest of the matchup, up to your {V["slots"]} active spots. '
+            f'<p class="hint">{T["hint"]}, up to your {V["slots"]} active spots. '
             f'Green: more than {escape(opp_name)} that day, red: fewer. Day-to-day players count as playing; '
             f'“expected” scales each game by his chance to play. Benched games are ones that don’t fit because every spot is full, '
-            f'so they don’t count. Games already played this week aren’t included.</p>'
+            f'so they don’t count. {T["tail"]}</p>'
             f'<div class="scroll"><table class="st lg vol"><thead><tr><th>Team</th>{head}<th>Total</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table></div>{_four_games(V, opp_name)}</section>')
+            f'<tbody>{rows}</tbody></table></div>{_four_games(V, opp_name, T)}</section>')
 
 
-def _four_games(V, opp_name):
+def _four_games(V, opp_name, T=THIS_WEEK):
     """How many players on each roster have 4 or more NBA games this matchup, with the full spread."""
     S = V.get("sched") or {}
     if not S.get("now") or not S.get("opp"):
@@ -954,25 +1106,24 @@ def _four_games(V, opp_name):
 
     rows = row("You", "Roster as it stands", S["now"], "lg-me", True)
     if S.get("plan"):
-        rows += row("You", "After your streaming plan", S["plan"], "lg-plan", True)
+        rows += row("You", T["plan_after"], S["plan"], "lg-plan", True)
     rows += row(escape(opp_name), "Roster as it stands", S["opp"], "lg-opp", False)
     head = f'<th>{"4+ games" if top > 4 else "4 games"}</th>' + "".join(f'<th>{c} game{"s" if c != 1 else ""}</th>' for c in cols)
     me4 = n4(S["now"])
     d = me4 - opp4
-    line = (f'You have <strong>{me4}</strong> player{"s" if me4 != 1 else ""} with 4 or more games this week; '
+    line = (f'You have <strong>{me4}</strong> player{"s" if me4 != 1 else ""} with 4 or more games {T["week"]}; '
             f'{escape(opp_name)} has <strong>{opp4}</strong>'
             + ("." if d == 0 else f' ({_signed(d)} for you).'))
     if S.get("plan"):
         p4 = n4(S["plan"])
-        line += f' After the streaming plan you’d have <strong>{p4}</strong>.'
+        line += f' {T["plan_with"]} you’d have <strong>{p4}</strong>.'
     lists = (f'<p class="dc" style="margin:6px 0 0"><b>Yours:</b> {names(S["now"])}</p>'
-             + (f'<p class="dc" style="margin:4px 0 0"><b>After the plan:</b> {names(S["plan"])}</p>' if S.get("plan") else "")
+             + (f'<p class="dc" style="margin:4px 0 0"><b>{T["plan_list"]}:</b> {names(S["plan"])}</p>' if S.get("plan") else "")
              + f'<p class="dc" style="margin:4px 0 0"><b>{escape(opp_name)}:</b> {names(S["opp"])}</p>')
-    return (f'<h3 class="vol-h">Players with 4 games this week</h3>'
+    return (f'<h3 class="vol-h">Players with 4 games {T["week"]}</h3>'
             f'<p class="lift" style="font-size:1rem">{line}</p>'
             f'<p class="hint">Every player on the roster (IR not included) by how many NBA games his team has across the whole '
-            f'matchup, including games already played. Injured players are counted and marked. A streamer only plays for you '
-            f'from the day you add him, so “left” shows his games still to come.</p>'
+            f'matchup. {T["four_hint"]}</p>'
             f'<div class="scroll"><table class="st lg vol"><thead><tr><th>Team</th>{head}</tr></thead>'
             f'<tbody>{rows}</tbody></table></div>{lists}')
 
@@ -1683,6 +1834,7 @@ def render(data, plan):
 <div id="tab-next" role="tabpanel" aria-label="Next week" hidden>
 {_nextmatch(plan, data)}
 <section class="panel" style="margin-bottom:18px"><h2>Set up next week</h2>{_nextweek(plan, data)}</section>
+{_volume_next(plan)}
 {_byday(plan, "Next week")}
 {_schedule_section(data)}{_teams_section(data)}
 </div>
@@ -1716,6 +1868,14 @@ def summary(data, plan):
         if V.get("plan"):
             g += f" ({V['plan']['total']} with the streaming plan)"
         lines.append(g + f", {data['opp']['name']} {V['opp']['total']}.")
+    N = plan.get("volume_next")
+    if N and N["days"]:
+        n4 = lambda r: sum(1 for x in r if x["games"] >= 4)
+        S = N["sched"]
+        lines.append(f"Next week vs {N['opp_name']}: starter games you {N['now']['total']}"
+                     + (f" ({N['plan']['total']} after planned moves)" if N.get("plan") else "")
+                     + f", them {N['opp']['total']}; 4-game players you {n4(S['now'])}"
+                     + (f" ({n4(S['plan'])})" if S.get("plan") else "") + f", them {n4(S['opp'])}.")
     dl = plan.get("deadlines") or []
     if dl:
         lines.append(f"{'Today' if dl[0]['today'] else dl[0]['label']}: make moves before {dl[0]['lock_txt']}, "
@@ -1747,7 +1907,7 @@ def summary(data, plan):
     nw = plan.get("nextweek") or {}
     nw_lines = [f"{'TODAY ' if nw.get('today') else ''}{nw['day']}, for next week: {'claim' if m.get('add_waiver') else 'add'} {m['add']}"
                 + (f", drop {m['drop']}" if m["drop"] else "")
-                + (f" after his game (from about {clock(m['free_from'])} UK)" if m.get("free_from") else "")
+                + (f" (before his game, {clock(m['add_tip'])} UK)" if m.get("add_starts_today") and m.get("add_tip") else "")
                 for m in nw.get("moves") or []]
     st = plan.get("stream") or {}
     if st.get("moves"):
