@@ -7,7 +7,7 @@ slots, exactly as the this-week simulation does.
 """
 import numpy as np
 
-from .sim import EQUAL, compare, entries, sim_team
+from .sim import EQUAL, compare, entries, sim_team, volume_table
 
 
 def _shadow(players):
@@ -45,3 +45,27 @@ def project(data, slots, n=3000):
     res["name"] = nm["name"]
     res["same"] = bool(nm.get("same"))
     return res
+
+
+def volume(data, plan, nextweek_plan, slots):
+    """Next week's starter games per day and 4-game players: your roster as it stands today, your roster
+    after this week's streaming plan and the Set up next week moves, and next week's opponent."""
+    nm, nd = data.get("next_opp"), data.get("next_days") or []
+    if not nm or not nd:
+        return None
+    now = [p for p in data["me"]["players"] if not p["ir"]]
+    es = plan.get("plan_entries")
+    roster = [e.p for e in es if e.until >= 10 ** 6] if es else list(now)
+    moves = (nextweek_plan or {}).get("moves") or []
+    by_name = {p["name"]: p for p in data["fa"]}
+    for m in moves:
+        roster = [p for p in roster if p["name"] != m.get("drop")]
+        if m["add"] in by_name:
+            roster.append(by_name[m["add"]])
+    changed = {p["name"] for p in roster} != {p["name"] for p in now}
+    days = list(range(len(nd)))
+    out = volume_table([d["label"] for d in nd], days, 0,
+                       entries(_shadow(now), EQUAL), entries(_shadow(roster), EQUAL) if changed else None,
+                       entries(_shadow(nm["players"]), EQUAL), slots)
+    out["opp_name"] = nm["name"]
+    return out
