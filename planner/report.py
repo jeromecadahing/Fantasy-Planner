@@ -181,7 +181,7 @@ table.st tr.ir td{color:var(--muted)}
 .bd{border-top:1px solid var(--rule);padding:8px 0}.bd summary{cursor:pointer}
 .bd-full summary{opacity:.75}.bd-row{padding:8px 0 4px 12px;border-left:3px solid var(--rule);margin:8px 0 0}
 .bd-h{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}.bd-h .delta{margin-left:auto}
-.bd-row p{margin:2px 0}
+.bd-row p{margin:2px 0}.bd-alt{margin:6px 0 2px 15px;font-size:.88rem}
 .bd-tag{font-size:.72rem;font-weight:600;padding:1px 6px;border-radius:9px;border:1px solid var(--rule);color:var(--muted)}
 .bd-b2b2{border-color:var(--warn);color:var(--warn)}
 .order{margin:0 0 14px;padding-left:1.4rem;display:grid;gap:6px}
@@ -1514,6 +1514,53 @@ def _news_item(n):
             f'{(" " + escape(story)) if story and story != n["headline"] else ""}</p>')
 
 
+BYDAY_ALTS = 2   # backup names shown under each day's pick
+
+
+def _byday_flags(r):
+    """Short warnings for a by-day free agent: rest risk, injury status, waivers, lineup full."""
+    tags = []
+    if r["b2b"] == "2nd night":
+        tags.append(("B2B, 2nd night", "Played the day before: rest risk", True))
+    elif r["b2b"] == "1st night":
+        tags.append(("B2B, 1st night", "Plays the next day too", False))
+    if r["status"] != "Healthy":
+        tags.append((r["status"], "", True))
+    if r.get("waiver"):
+        tags.append(("Waivers", _wv(r["waiver"], claim=False), True))
+    if not r["fills"]:
+        tags.append(("Upgrade", "Your lineup is full: he’d replace your weakest starter", False))
+    return tags
+
+
+def _byday_pick(r):
+    """The day's recommended pickup, with the detail needed to act on it."""
+    tags = ""
+    for label, tip, warn in _byday_flags(r):
+        cls = "bd-tag bd-b2b2" if warn else "bd-tag"
+        title = f' title="{tip}"' if tip else ""
+        tags += f'<span class="{cls}"{title}>{escape(label)}</span>'
+    up = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["up"])
+    down = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["down"])
+    cats = "Helps " + up + (f"; costs {down}" if down else "") if up else ""
+    also = (f' Also plays on your other open days: {escape(", ".join(r["open_days"]))}, so one add can cover those too.'
+            if r["open_days"] else "")
+    extra = (f'<p class="dc">{_wv(r["waiver"])}</p>' if r.get("waiver") else "") + \
+        (f'<p class="dc">{escape(r["trend"])}</p>' if r.get("trend") else "")
+    dw = round(r["win_delta"] * 100)
+    return (f'<div class="bd-row"><div class="bd-h"><strong>{escape(r["name"])}</strong> '
+            f'<span class="dc">{escape(r["team"])}</span>{tags}'
+            f'<span class="delta pos">{_signed(dw, "%")} win</span></div>'
+            f'<p class="dc">{escape(cats)}{"." if cats else ""}{also}</p>{extra}</div>')
+
+
+def _byday_alt(r):
+    """A backup pickup in one short phrase: name, win change and any warning."""
+    warn = [label for label, _, w in _byday_flags(r) if w]
+    note = f' <span class="dc">({escape(", ".join(warn))})</span>' if warn else ""
+    return f'{escape(r["name"])} {_signed(round(r["win_delta"] * 100), "%")}{note}'
+
+
 def _byday(plan, label):
     """Free agents by day for one week: open spots, the best one-day pickups, back-to-backs."""
     bd = plan.get("byday") or {}
@@ -1524,16 +1571,17 @@ def _byday(plan, label):
     cut = (f" If you have no streamer to swap out, your weakest player to cut is {escape(bd['cut'])}."
            if bd.get("cut") else "")
     h = (f'<section class="panel" style="margin-bottom:18px"><h2>Free agents by day</h2>'
-         f'<p class="hint">For each day: how many open lineup spots you have, and the free agents who play that day, '
-         f'simulated against {who} with each one in your lineup for that day only. A pickup needs a roster spot, '
-         f'and these numbers don’t subtract the games of whoever you drop.{cut}</p>')
+         f'<p class="hint">The best free agent to stream each day, simulated against {who} as if he played '
+         f'for you that day only, with a couple of backups in case he’s taken. These numbers don’t subtract '
+         f'the games of whoever you drop.{cut}</p>')
     for d in wk["days"]:
-        rows = [r for r in d["rows"] if r["win_delta"] >= 0.01 or r["cats_delta"] >= 0.1]
+        # Only players who move your chance to win by at least 2 points are worth an add.
+        rows = [r for r in d["rows"] if r["win_delta"] >= 0.02]
         if d["open"]:
             room = f'{d["open"]} open spot{"s" if d["open"] != 1 else ""}'
         else:
             room = f'full ({d["playing"]} players for your spots)'
-        best = f' · best: {escape(rows[0]["name"])} {_signed(round(rows[0]["win_delta"] * 100), "%")}' if rows else ""
+        best = f' · pick: {escape(rows[0]["name"])} {_signed(round(rows[0]["win_delta"] * 100), "%")}' if rows else ""
         cls = "bd-open" if d["open"] else "bd-full"
         body = ""
         if not rows:
@@ -1543,32 +1591,12 @@ def _byday(plan, label):
                 body = (f'<p class="dc">Your lineup is full, so a pickup only plays if he’s better than your weakest '
                         f'starter{" (" + escape(d["weakest"]) + ")" if d.get("weakest") else ""}, and none is by enough '
                         f'to matter. Save the add for a lighter day.</p>')
-        for r in rows:
-            tags = []
-            if r["b2b"] == "2nd night":
-                tags.append('<span class="bd-tag bd-b2b2" title="Played the day before: rest risk">B2B, 2nd night</span>')
-            elif r["b2b"] == "1st night":
-                tags.append('<span class="bd-tag" title="Plays the next day too">B2B, 1st night</span>')
-            if r["status"] != "Healthy":
-                tags.append(f'<span class="bd-tag bd-b2b2">{escape(r["status"])}</span>')
-            if r.get("waiver"):
-                tags.append(f'<span class="bd-tag bd-b2b2" title="{_wv(r["waiver"], claim=False)}">Waivers</span>')
-            if not r["fills"]:
-                tags.append('<span class="bd-tag" title="Your lineup is full: he’d replace your weakest starter">Upgrade</span>')
-            up = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["up"])
-            down = ", ".join(f"{c} {_signed(v, '%')}" for c, v in r["down"])
-            moves = " · ".join(x for x in (up, down) if x)
-            also = (f'<p class="dc">Also plays on your other open days: {escape(", ".join(r["open_days"]))}</p>'
-                    if r["open_days"] else "")
-            trend = (f'<p class="dc">{_wv(r["waiver"])}</p>' if r.get("waiver") else "") + \
-                (f'<p class="dc">{escape(r["trend"])}</p>' if r.get("trend") else "")
-            dw = round(r["win_delta"] * 100)
-            tone = "pos" if dw > 0 else "neg" if dw < 0 else "flat"
-            body += (f'<div class="bd-row"><div class="bd-h"><strong>{escape(r["name"])}</strong> '
-                     f'<span class="dc">{escape(r["team"])}</span>{"".join(tags)}'
-                     f'<span class="delta {tone}">{_signed(dw, "%")} win</span></div>'
-                     f'<p class="dc">{r["cats_delta"]:+.2f} expected categories{" · " + escape(moves) if moves else ""}</p>'
-                     f'{also}{trend}</div>')
+        else:
+            body = _byday_pick(rows[0])
+            alts = rows[1:1 + BYDAY_ALTS]
+            if alts:
+                body += ('<p class="bd-alt"><span class="dc">If he’s gone:</span> '
+                         + ", ".join(_byday_alt(r) for r in alts) + "</p>")
         h += (f'<details class="bd {cls}"><summary><strong>{escape(d["label"])}</strong>'
               f' <span class="dc">{room}{best}</span></summary>{body}</details>')
     return h + "</section>"
