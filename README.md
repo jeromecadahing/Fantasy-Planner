@@ -107,14 +107,16 @@ The newest tagged story counts toward the advice. A return report can move a fre
 The tags come from keywords, not from reading the article, so they're a nudge. Open the story before you act. Feeds that fail or change are skipped without stopping the run (the log lists them). To choose your own feeds, set the `NEWS_FEEDS` variable to comma-separated `Name|url` pairs, like `RotoWire|https://www.rotowire.com/rss/news.php?sport=NBA, Hoops Rumors|https://www.hoopsrumors.com/feed`. Set it to `none` to turn outside news off.
 
 ## Free agents by day
-Both the **This week** and **Next week** tabs have a **Free agents by day** section. Each day shows how many open lineup spots you have and the best free agents who play that day. Each one is simulated against your opponent as if he were in your lineup that day only, so you see the change in your chance to win the week, in expected categories, and which categories move.
+Both the **This week** and **Next week** tabs have a **Free agents by day** section. Each day shows how many open lineup spots you have and one pick: the free agent who'd help most if he played for you that day only, simulated against your opponent. Under him are up to two backups in case he's taken, each with just his change in your chance to win and any warning.
+
+The pick shows the change in your chance to win the week, which categories move, and any tags:
 
 - **B2B, 2nd night**: he also played the day before. Teams sometimes rest players on the second night, so check the news before relying on him.
 - **B2B, 1st night**: he plays the next day too.
 - **Upgrade**: your lineup is full that day, so he'd only play by replacing your weakest starter.
-- **Also plays on your other open days**: a player who covers several of your light days is worth more than a one-day stream.
+- **Also plays on your other open days**: a player who covers several of your light days is worth more than a one-day stream, since one add covers them all.
 
-Full days usually show nothing worth adding, which is the point: save adds for your light days. Every pickup needs a roster spot, and the numbers don't subtract the games of whoever you drop; the section names your weakest droppable player so you can weigh that. Next week uses your roster after the **Set up next week** moves and season-long numbers. The section updates with every run, so each morning it reflects the current free agents and your roster.
+Only players who'd raise your chance to win by at least 2 points are shown, so full days usually show nothing, which is the point: save adds for your light days. Every pickup needs a roster spot, and the numbers don't subtract the games of whoever you drop; the section names your weakest droppable player so you can weigh that. Next week uses your roster after the **Set up next week** moves and season-long numbers. The section updates with every run, so each morning it reflects the current free agents and your roster.
 
 ## What each streaming move does
 Every step in the streaming plan shows what it does on top of the steps before it: your chance to win after the move, the change, extra starter games, expected categories and which categories move. The dropped player's lost games are listed. Under the steps, a table compares your chance in each category now and with the whole plan. The **Daily lineup** follows the plan: pickups are marked with a green **+**, a dropped player's lost game is struck through in red, and players counted out that day are shown in amber.
